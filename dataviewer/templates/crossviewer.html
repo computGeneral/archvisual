@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>CrossViewer</title>
+    <link rel="icon" href="/static/image/visualizer.ico" type="image/x-icon">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .nav-bar {
+            height: 14px;
+            background-color: #333;
+            font-family: sans-serif;
+            font-size: 80%;
+            position: relative;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .content {
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .footer {
+            width: 100%;
+            height: 20px;
+            background-color: #ddd;
+            text-align: center;
+            font-family: sans-serif;
+            font-size: 80%;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+
+        .split-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .split-container.horizontal {
+            flex-direction: row;
+        }
+
+        .split-panel {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #ccc;
+        }
+
+        .split-panel.active {
+            border: 2px solid #007bff;
+        }
+
+        .split-panel iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+    <div class="nav-bar">
+        <a id="path" href='admin' style="float: left; color: #fff;">ArchVisual</a>
+        <span id="split" style="float: left; margin-left: 2px;">:</span>
+        <!--
+        <a id="path" href='summaryviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">SummaryVis</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        -->
+        <a id="path" href='metricviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">MetricViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='traceviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">TraceViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; font-weight: bold; color: #fff;">CrossViewer</a>
+        <!--
+        <a id="path" href='traceviewerv2' style="float: left; margin-left: 2px; margin-right: 2px; color:cadetblue">TraceViewerV2</a>
+        <span id="reversion" style="float: right">Rev 0.1</span>
+        -->
+    </div>
+        <div class="content">
+            <div id="splitContainer" class="split-container horizontal">
+                <div id="metricPanel" class="split-panel">
+                    <iframe id="metricFrame" src="/metricviewer?embedded=true" title="MetricViewer"></iframe>
+                </div>
+                <div id="tracePanel" class="split-panel">
+                    <iframe id="traceFrame" src="/traceviewer?embedded=true" title="TraceViewer"></iframe>
+                </div>
+            </div>
+        </div>
+        <div class="footer">
+            <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>MetricViewer</title>
+    <script type="text/javascript" src="/static/js/echarts.min.js"></script>
+    <script src="/static/js/jquery-3.4.0.js"></script>
+    <link rel="icon" href="/static/image/metricviewer.ico" type="image/x-icon">
+    <style type="text/css">
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+
+        .header {
+            width: 100%;
+            height: 24px;
+            position: absolute;
+            margin-top:14px;
+            font-family: sans-serif;
+            font-size: 80%;
+        }
+
+        .content {
+            width: 100%;
+            height: calc(100% - 58px);
+            position: absolute;
+            top: 38px;
+            left: 0px;
+            z-index: 2;
+            overflow-y: scroll;
+            font-family: sans-serif;
+        }
+
+        .split-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .split-container.horizontal {
+            flex-direction: row;
+        }
+
+        .split-panel {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            overflow-y: auto;
+            position: relative;
+            border: 1px solid #ccc;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .split-panel .chart-container {
+            width: 100%;
+            min-height: 100%;
+            flex-shrink: 0;
+        }
+
+        .split-panel .panel-header {
+            position: sticky;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(221, 221, 221, 0.95);
+            padding: 2px 5px;
+            font-size: 75%;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .footer {
+            width: 100%;
+            height: 20px;
+            background-color: #ddd;
+            text-align: center;
+            font-family: sans-serif;
+            font-size: 80%;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            z-index: 8;
+            position: absolute;
+            left: 0;
+            bottom: 0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .split-panel.active {
+            border: 2px solid #007bff;
+        }
+
+        .nav-bar-container.hidden {
+            display: none !important;
+        }
+
+        /* Embedded mode adjustments */
+        body.embedded .header {
+            top: 0;
+            margin-top: 0;
+        }
+
+        body.embedded .content {
+            top: 24px;
+            height: calc(100% - 24px);
+        }
+
+        body.embedded .footer {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body style="height: 100%; width: 100%; margin: 0">
+    <div class="nav-bar-container" style="font-family: sans-serif; font-size: 80%; background-color: #333; position: absolute; top: 0; left: 0; width: 100%; height: 24px;">
+        <a id="path" href='admin' style="float: left; font-weight: bold; color: #fff;">ArchVisual</a>
+        <span id="split" style="float: left; margin-left: 2px;">:</span>
+        <!--
+        <a id="path" href='summaryviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">SummaryVis</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+    -->
+        <a id="path" href='metricviewer' style="float: left; margin-left: 2px; margin-right: 2px; font-weight: bold; color: #fff;">MetricViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='traceviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">TraceViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">CrossViewer</a>
+        <!--
+        <a id="path" href='traceviewerv2' style="float: left; margin-left: 2px; margin-right: 2px; color:cadetblue">TraceViewerV2</a>
+        <span id="reversion" style="float: right">Rev 0.1</span>
+        -->
+    </div>
+
+    <div class="header" style="background-color: #ddd; font-size: 80%">
+        <div style="display: flex; justify-content: space-between">
+            <div style="text-align: left; flex-grow: 0">
+                <button id="splitToggle" type="button" onclick="toggleSplitView()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">SplitView</button>
+                <select id="splitDirection" style="height:21px; font-size: 100%" onchange="changeSplitDirection()">
+                    <option value="vertical">Vert</option>
+                    <option value="horizontal" selected>Hori</option>
+                </select>
+                <span id="panel1Label" style="margin-left: 5px; font-weight: bold;">Panel 1</span>
+                <button id="initBtn" type="button" onclick="document.getElementById('fileInput').click();" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load</button>
+                <input type="file" id="fileInput" style="display: none;">
+                <!-- <input id="initData" type="text" style="width: 240px; margin-bottom: 7px;" name="initData" autocomplete="off" placeholder="Enter the metrics data file with full path"> -->
+                <!--
+                <input id="remote_h5" style="width: 120px; height:19px; " type="text" size="10" value="" placeholder="Enter the remote h5 location">
+                <button type="button" onclick="LoadRemoteH5()" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 4px">LoadRemote</button>
+                -->
+                <input id="template_name" style="width: 60px; height:19px; " type="text" size="10" value="" placeholder="Enter the template file to save/load">
+                <button type="button" onclick="ExportTemplate(true)" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Export</button>
+                <button type="button" onclick="ExportTemplate(false)" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Import</button>
+                <input id="filterMetricGroup" style="width: 120px; height:19px; " type="text" value="" placeholder="group name">
+                <input id="filterMetric" style="width: 120px; height:19px; " type="text" value="" placeholder="metric name"
+                    onclick="MetricSelectDivClick();" onkeydown="MetricSearchFunc(event)">
+                <div id="MetricSelectDiv"
+                    style="display:none;border:1px solid #A9A9A9;width:800px;z-index:9;position:absolute;overflow-y :scroll;height:300px;background-color:white;"
+                    onMouseOver="MetricSelectMouseIn()" onMouseOut="MetricSelectMouseOut()">
+                    <br>
+                </div>
+                <button type="button" onclick="MetricSelectSubmit()" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Plot</button>
+                <button type="button" onclick="ClearAll()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Clear</button>
+                <span id="title" style="float: center;">No file loaded</span>
+            </div>
+
+            <div style="text-align: right; flex-grow: 0">
+                <!--
+                <label for="zoom_start">Sample</label>
+                -->
+                <input id="zoom_start" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="Start"
+                    onkeydown="ZoomChange(event)">
+                <input id="zoom_end" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="End"
+                    onkeydown="ZoomChange(event)">
+                <input id="zoom_duration" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="Dur"
+                    onkeydown="ZoomChange(event)">
+
+                <!--
+                <label for="zoom_start">Event</label>
+                <input id="zoom_event" style="width: 60px;" type="text" size="10" maxlength="30" value="" onkeydown="ZoomEventChange(event, this)">
+                -->
+                <!--
+                <label for="sample_rate">Rate</label>
+                -->
+                <input id="sample_rate" style="width: 60px; height:19px; " type="text" size="10" value="100">
+                <!--
+                <label for="zoom_start">Limit</label>
+            -->
+                <input id="max_value" style="width: 60px; height:19px; padding-right:10px;" type="text" size="10"
+                    placeholder="set -1 to remove duration limit">
+                <!--
+                <label for="sync">Sync</label>
+            -->
+                <input type="checkbox" id="sync" name="sync" checked />
+            </div>
+            <!--
+            <label for="Merge">Merge</label>
+            <input id="Merge" type="checkbox" name="Merge" lay-skin="primary" checked>
+            <label for="Stack">Stack</label>
+            <input id="Stack" type="checkbox" name="Stack" lay-skin="primary">
+            -->
+        </div>
+    </div>
+    <div class="content">
+        <div id="splitContainer" class="split-container">
+            <div id="panel1" class="split-panel" onclick="setActivePanel(1)">
+                <div id="panel1Header" class="panel-header hidden">
+                    <span style="font-weight: bold;">Panel 1:</span>
+                    <span id="panel1Title">No file loaded</span>
+                </div>
+                <div id="container" class="chart-container"></div>
+            </div>
+            <div id="panel2" class="split-panel hidden" onclick="setActivePanel(2)">
+                <div id="panel2Header" class="panel-header">
+                    <span style="font-weight: bold;">Panel 2:</span>
+                    <span id="panel2Title">No file loaded</span>
+                </div>
+                <div id="container2" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
+    </div>
+</body>
+
+<script>
+    // Dual view state
+    var isSplitView = false;
+    var splitDirection = 'horizontal';
+    var activePanel = 1; // 1 or 2
+
+    // Panel 1 (primary)
+    var dom = document.getElementById('container');
+    var dom_fixed_height = 80;
+    var myChart = echarts.init(dom, null, {
+        renderer: 'canvas',
+        useDirtyRect: false
+    });
+    var lastClickedTarget = { type: null, name: null };
+
+    // Panel 2 (secondary)
+    var dom2 = document.getElementById('container2');
+    var dom2_fixed_height = 80;
+    var myChart2 = null;
+    var lastClickedTarget2 = { type: null, name: null };
+
+    // Data for panel 2
+    var DataInterval2 = -1;
+    var Title2 = null;
+    var TimeLine2 = [];
+    var TimeNames2 = [];
+    var MetricNames2 = [];
+    var MetricSelectList2 = {};
+    var zoom_input_start2 = null;
+    var zoom_input_end2 = null;
+    var zoom_output_dur2 = null;
+
+    // Toggle split view
+    function toggleSplitView() {
+        // Save current zoom state before toggling
+        var savedZoom1 = null;
+        if (myChart) {
+            try {
+                var option = myChart.getModel().option;
+                if (option && option.dataZoom && option.dataZoom.length > 0) {
+                    var zoom1 = option.dataZoom[0];
+                    savedZoom1 = {
+                        start: zoom1.start,
+                        end: zoom1.end,
+                        startValue: zoom1.startValue,
+                        endValue: zoom1.endValue
+                    };
+                }
+            } catch (e) {
+                console.log('Could not save zoom state:', e);
+            }
+        }
+
+        isSplitView = !isSplitView;
+        var panel2 = document.getElementById('panel2');
+        var splitContainer = document.getElementById('splitContainer');
+        var panel1Header = document.getElementById('panel1Header');
+        var panel2Header = document.getElementById('panel2Header');
+        var splitToggle = document.getElementById('splitToggle');
+
+        if (isSplitView) {
+            panel2.classList.remove('hidden');
+            panel1Header.classList.remove('hidden');
+            panel2Header.classList.remove('hidden');
+            splitToggle.textContent = 'SingleView';
+            changeSplitDirection();
+
+            // Resize chart and restore zoom state for panel 1
+            setTimeout(function() {
+                if (myChart) {
+                    myChart.resize();
+                    if (savedZoom1) {
+                        myChart.dispatchAction({
+                            type: 'dataZoom',
+                            start: savedZoom1.start,
+                            end: savedZoom1.end,
+                            startValue: savedZoom1.startValue,
+                            endValue: savedZoom1.endValue
+                        });
+                    }
+                }
+            }, 100);
+        } else {
+            panel2.classList.add('hidden');
+            panel1Header.classList.add('hidden');
+            panel2Header.classList.add('hidden');
+            splitContainer.classList.remove('horizontal');
+            splitToggle.textContent = 'SplitView';
+            activePanel = 1;
+            setActivePanel(1);
+
+            // Resize chart and restore zoom state for panel 1
+            setTimeout(function() {
+                if (myChart) {
+                    myChart.resize();
+                    if (savedZoom1) {
+                        myChart.dispatchAction({
+                            type: 'dataZoom',
+                            start: savedZoom1.start,
+                            end: savedZoom1.end,
+                            startValue: savedZoom1.startValue,
+                            endValue: savedZoom1.endValue
+                        });
+                    }
+                }
+            }, 100);
+        }
+    }
+
+    // Change split direction
+    function changeSplitDirection() {
+        if (!isSplitView) return;
+        splitDirection = document.getElementById('splitDirection').value;
+        var splitContainer = document.getElementById('splitContainer');
+        if (splitDirection === 'horizontal') {
+            splitContainer.classList.add('horizontal');
+        } else {
+            splitContainer.classList.remove('horizontal');
+        }
+    }
+
+    // Set active panel for operations
+    function setActivePanel(panel) {
+        activePanel = panel;
+        var panel1Label = document.getElementById('panel1Label');
+        var panel1 = document.getElementById('panel1');
+        var panel2 = document.getElementById('panel2');
+
+        if (panel === 2) {
+            panel1Label.textContent = 'Panel 2:';
+            panel1.classList.remove('active');
+            panel2.classList.add('active');
+        } else {
+            panel1Label.textContent = 'Panel 1:';
+            panel1.classList.add('active');
+            panel2.classList.remove('active');
+        }
+        // Rebuild metric selection dropdown for the active panel
+        rebuildMetricSelectDiv();
+    }
+
+    // Get active chart and related variables
+    function getActiveChart() {
+        if (activePanel === 2 && myChart2) {
+            return {
+                chart: myChart2,
+                dataInterval: DataInterval2,
+                timeLine: TimeLine2,
+                metricSelectList: MetricSelectList2,
+                zoomInputStart: zoom_input_start2,
+                zoomInputEnd: zoom_input_end2,
+                zoomOutputDur: zoom_output_dur2
+            };
+        }
+        return {
+            chart: myChart,
+            dataInterval: DataInterval,
+            timeLine: TimeLine,
+            metricSelectList: MetricSelectList,
+            zoomInputStart: zoom_input_start,
+            zoomInputEnd: zoom_input_end,
+            zoomOutputDur: zoom_output_dur
+        };
+    }
+
+    // listen keyboard events
+    document.addEventListener('keydown', function (event) {
+        var active = getActiveChart();
+        if (event.key === 'x') {
+            window.SyncToTraceView();
+        }
+        if (event.key === "v") {
+            console.log("Time: " + window.downplaycache.time, JSON.parse(JSON.stringify(window.downplaycache.res)));
+        }
+        // use Delete key to delete the last clicked metric group
+        if (event.key === 'Delete' || event.keyCode === 46) {
+            event.preventDefault();
+            var target = activePanel === 2 ? lastClickedTarget2 : lastClickedTarget;
+            if (target) {
+                console.log('Delete:', target);
+                delete_metric_group(target.name, activePanel);
+            } else {
+                console.log('No target to delete!');
+            }
+        }
+    });
+
+    // Remove z key event handlers - zoom selection now works with mouse drag only
+
+    window.bc = new BroadcastChannel('klxarch');
+    window.SyncToTraceView = () => {
+        const scale = parseFloat($("#sample_rate").prop("value"));
+        const msg = {
+            type: "SYNC_METRIC_TO_TRACE",
+            center: 0.001 * scale * (window.zoom_start_val + window.zoom_end_val) / 2,
+            duration: 0.001 * scale * (window.zoom_end_val - window.zoom_start_val)
+        }
+        // console.info("SYNC", window.zoom_start_val, msg);
+        window.bc.postMessage(msg);
+    }
+
+    window.bc.onmessage = function (e) {
+        // console.info('Receive Channel data:', e.data);
+        if ($('#sync').prop('checked')) {
+            const scale = parseFloat($("#sample_rate").prop("value"));
+            if (e.data.type == "SYNC_TRACE_TO_METRIC") {
+                let { center, duration } = e.data;
+                // let start_val = (center - duration / 2) / (0.001 * scale);
+                // let end_val = (center + duration / 2) / (0.001 * scale);
+                // let all_dur = TimeLine[TimeLine.length - 1] - TimeLine[0];
+                // let start = (start_val - TimeLine[0]) / all_dur * 100;
+                // let end = (end_val - TimeLine[0]) / all_dur * 100;
+                let start_val = (center - duration / 2) / 0.1;
+                let end_val = (center + duration / 2) / 0.1;
+                let all_dur = TimeLine[TimeLine.length - 1] - TimeLine[0];
+                let start = (start_val - TimeLine[0]) / all_dur * scale;
+                let end = (end_val - TimeLine[0]) / all_dur * scale;
+                myChart.dispatchAction({
+                    type: 'dataZoom',
+                    start: start > 0 ? start : 0,
+                    end: end < 100 ? end : 100,
+                    disable_propagation: true
+                })
+            };
+        }
+    }
+
+    /* document.addEventListener('keydown', function (event) {
+        if (event.key === 'x') {
+            let bias = 0.03;
+            let calc_start = window.zoom_start * ;
+            let calc_end = window.zoom_end + bias;
+            myChart.dispatchAction({
+                type: 'dataZoom',
+                start: calc_start > 0 ? calc_start : 0,
+                end: calc_end < 100 ? calc_end : 100,
+            })
+        }
+    }); */
+
+
+    var DataInterval = -1;
+    var Title = null;
+    var TimeLine = [];
+    var TimeNames = [];
+    var MetricNames = [];
+    var cur_data_index = -1;
+    var cur_series_index = -1;
+
+    var zoom_input_start = document.getElementById('zoom_start');
+    var zoom_input_end = document.getElementById('zoom_end');
+    var zoom_output_dur = document.getElementById('zoom_duration');
+
+    var colorarrays = ['#1f77b4ff', // muted blue
+                       '#ff7f0eff', // safety orange
+                       '#2ca02cff', // cooked asparagus green
+                       '#d62728ff', // brick red
+                       '#9467bdff', // muted purple
+                       '#8c564bff', // chestnut brown
+                       '#e377c2ff', // raspberry yogurt pink
+                       '#7f7f7fff', // middle gray
+                       '#bcbd22ff', // curry yellow-green
+                       '#17becfff', // blue-teal
+                       '#aec7e8ff', // light blue
+                       '#ffbb78ff', // light orange
+                       '#98df8aff', // light green
+                       '#ff9896ff', // light red
+                       '#c5b0d5ff', // light purple
+                       '#c49c94ff', // light brown
+                       '#f7b6d2ff', // light pink
+                       '#c7c7c7ff', // light gray
+                       '#dbdb8dff', // light yellow-green
+                       '#9edae5ff'  // light blue-teal
+    ];
+    var CurMetricSelectList = []
+    var CurMetricSelectList2 = []
+    var MetricSelectInDiv = false;
+    var MetricSelectList = {}
+    var MetricSelectList2 = {}
+    var GRID_MARGIN = 20;
+    var GRID_HEIGHT = 80;
+
+    function getUrlParamVal(key) {
+        var paramVal = '';
+        var queryString = window.location.href.split('?')[1];
+        if (queryString) {
+            queryString = queryString.split('#')[0]; // 去除URL中的hash
+            var pairs = queryString.split('&');
+            for (var i = 0; i < pairs.length; i++) {
+                var pair = pairs[i].split('=');
+                var nowKey = decodeURIComponent(pair[0]);
+                if (nowKey === key) {
+                    paramVal = decodeURIComponent(pair[1] || '');
+                    break;
+                }
+            }
+        }
+
+        return paramVal;
+    }
+
+    function MarkLine(name, color) {
+        return {
+            silent: true,
+            animation: false,
+            data: [{
+                xAxis: -1,
+                symbol: 'none',
+                label: {
+                    show: false,
+                }
+            }, {
+                lineStyle: {
+                    color: color
+                },
+                label: {
+                    show: true,
+                    formatter: '{c},{b}'
+                },
+                name: name,
+                type: "average"
+            }]
+        };
+    }
+
+    function find_group_gridId(name, grid_option) {
+        for (var gridId in grid_option) {
+            if (grid_option[gridId].id === name) {
+                return gridId;
+            }
+        }
+        return -1;
+    }
+
+    function get_grid_position(gridId) {
+        return [GRID_MARGIN + (GRID_MARGIN + GRID_HEIGHT) * gridId, GRID_HEIGHT];
+    }
+
+    function append_new_group(group_name, gridId, option, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetTimeLine = isSecondary ? TimeLine2 : TimeLine;
+        var targetDataInterval = isSecondary ? DataInterval2 : DataInterval;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+        option['dataZoom'][0]['xAxisIndex'].push(gridId);
+        option['dataZoom'][1]['xAxisIndex'].push(gridId);
+        option['xAxis'].push({
+            id: group_name,
+            type: 'category',
+            show: true,
+            gridIndex: gridId,
+            data: targetTimeLine,
+            //axisLabel: gridId == 0,
+            axisLabel: {
+                show: true,
+            },
+        });
+        var ymax = targetMetricSelectList[group_name]['Max']
+        if (targetMetricSelectList[group_name]['Max'] === 'duration') {
+            ymax = targetDataInterval;
+        }
+
+        option['yAxis'].push({
+            id: group_name,
+            show: true,
+            gridIndex: gridId,
+            min: 0,
+            max: ymax,
+            name: group_name,
+            nameLocation: 'middle',
+            nameRotate: 90,
+            nameGap: 50,
+            showMaxLabel: true,
+            axisLabel: {
+                show: true,
+            },
+            splitLine: {
+                show: false,
+            },
+        });
+        pos = get_grid_position(gridId);
+        option['grid'].push({
+            id: group_name,
+            show: false,
+            top: pos[0],
+            height: pos[1]
+        });
+
+        return option;
+    }
+
+    function append_group_series(group_name, gridId, series_data, option, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+        var stack_field = null;
+        if (targetMetricSelectList[group_name]['Stack']) {
+            stack_field = group_name;
+        }
+        for (var signal in series_data) {
+            color = colorarrays[targetMetricSelectList[group_name]['Sig'].length % colorarrays.length];
+            tmp_mark = MarkLine(signal, color);
+            option['series'].push({
+                id: group_name + "&" + signal,
+                type: 'line',
+                smooth: true,
+                name: group_name,
+                areaStyle: {
+                    normal: {
+                        color: color
+                    }
+                },
+                stack: stack_field,
+                seriesLayoutBy: 'row',
+                xAxisIndex: gridId,
+                yAxisIndex: gridId,
+                data: series_data[signal],
+                markLine: tmp_mark,
+                // sampling: 'lttb'
+            });
+            targetMetricSelectList[group_name]['Sig'].push(signal);
+        }
+
+        return option;
+    }
+
+    function append_metrics(update_signal_data, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+        var targetDom = isSecondary ? dom2 : dom;
+        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+
+        var option = targetChart.getOption();
+        var update_option = {
+            dataZoom: [{
+                xAxisIndex: option['dataZoom'][0]['xAxisIndex']
+            }, { xAxisIndex: option['dataZoom'][1]['xAxisIndex'] }],
+            series: [],
+            grid: [],
+            xAxis: [],
+            yAxis: [],
+        };
+        var nId = option['grid'].length;
+        for (var group_name in update_signal_data) {
+            if (!(group_name in targetMetricSelectList)) {
+                gridId = nId;
+                nId += 1;
+                targetMetricSelectList[group_name] = {};
+                for (var key in update_signal_data[group_name]) {
+                    if (key != 'Sig') {
+                        targetMetricSelectList[group_name][key] = update_signal_data[group_name][key];
+                    }
+                }
+                targetMetricSelectList[group_name]['Sig'] = [];
+                update_option = append_new_group(group_name, gridId, update_option, panel);
+            }
+            else {
+                gridId = find_group_gridId(group_name, option['grid']);
+            }
+            update_option = append_group_series(group_name, gridId, update_signal_data[group_name]['Sig'], update_option, panel);
+        }
+        option_update(update_option, false, panel);
+    }
+
+    function delete_metric_group(group_name, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+        var targetDom = isSecondary ? dom2 : dom;
+        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+
+        var option = targetChart.getOption();
+        delete option['legend'][0]['selected'][group_name];
+        var update_option = {
+            dataZoom: [{
+                xAxisIndex: []
+            }, {
+                xAxisIndex: []
+            }],
+            series: [],
+            grid: [],
+            xAxis: [],
+            yAxis: [],
+            legend: option['legend']
+        };
+
+        var nid = 0;
+        var group_map_grid = {};
+        delete targetMetricSelectList[group_name];
+        for (var id in option['grid']) {
+            if (option['grid'][id]['id'] == group_name) {
+                continue;
+            }
+            update_option = append_new_group(option['grid'][id]['id'], nid, update_option, panel);
+            group_map_grid[option['grid'][id]['id']] = nid;
+            nid += 1;
+        }
+        for (var id in option['series']) {
+            if (option['series'][id]['name'] == group_name) {
+                continue;
+            }
+            tmp = option['series'][id];
+            tmp['xAxisIndex'] = group_map_grid[option['series'][id]['name']];
+            tmp['yAxisIndex'] = group_map_grid[option['series'][id]['name']];
+            update_option['series'].push(tmp);
+        }
+        option_update(update_option, true, panel);
+    }
+
+    function option_update(option, force, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetDom = isSecondary ? dom2 : dom;
+        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+
+        if (force) {
+            targetChart.setOption(option, {
+                replaceMerge: ['xAxis', 'yAxis', 'grid', 'series', 'legend'] //
+            });
+        }
+        else {
+            targetChart.setOption(option);
+        }
+
+        option = targetChart.getOption();
+        height = get_grid_position(option['grid'].length)[0];
+        height += 50;
+        height = Math.ceil(height / targetDomHeight) * targetDomHeight;
+        current_height = parseInt(targetDom.style.height.slice(0, targetDom.style.height.length - 2));
+        if (current_height != height) {
+            targetDom.style.height = height + "px";
+            targetChart.resize();
+        }
+    }
+
+    function ZoomChange(event) {
+        if (event.keyCode != "13") {
+            return;
+        }
+        var isSecondary = activePanel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetTimeLine = isSecondary ? TimeLine2 : TimeLine;
+
+        let s = parseInt(zoom_input_start.value);
+        let e = parseInt(zoom_input_end.value);
+
+        if (s < targetTimeLine[0]) {
+            s = targetTimeLine[0];
+        }
+        if (e > targetTimeLine[targetTimeLine.length - 1]) {
+            e = targetTimeLine[targetTimeLine.length - 1];
+        }
+
+
+        targetChart.dispatchAction({
+            type: 'dataZoom',
+            dataZoomIndex: 0,
+            startValue: targetTimeLine.indexOf(s),
+            endValue: targetTimeLine.indexOf(e),
+        });
+    }
+
+    function ZoomEventChange(event, obj) {
+        if (event.keyCode != "13") {
+            return;
+        }
+        var isSecondary = activePanel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetTimeNames = isSecondary ? TimeNames2 : TimeNames;
+
+        let s = obj.value;
+        s = targetTimeNames.length;
+        e = 0;
+        find = false;
+        for (var i = 0; i < targetTimeNames.length; i++) {
+            targetTimeNames[i].split("&").forEach(function (item) {
+                if (item == obj.value) {
+                    s = Math.min(s, i);
+                    e = Math.max(e, i);
+                    find = true;
+                }
+            });
+        }
+        if (!find) {
+            return;
+        }
+        targetChart.dispatchAction({
+            type: 'dataZoom',
+            dataZoomIndex: 0, // optional, default 0 index of datazoom component for multiple datazoom component
+            // start: number, // the start position of dataZoom, in percentage 0 - 100
+            // end: number, // the end position of dataZoom, in percentage 0 - 100
+            startValue: s, // the start position of dataZoom, in abs value
+            endValue: e // the end position of dataZoom, in abs value
+        });
+    }
+
+    function MetricSelectDivClick() {
+        document.getElementById("MetricSelectDiv").style.display = "block";
+    }
+
+    function MetricCheck(obj) {
+        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
+        if (obj.checked) {
+            targetList.push(obj.value);
+        } else {
+            for (var i = 0; i < targetList.length; i++) {
+                if (targetList[i] == obj.value) {
+                    targetList.splice(i, 1);
+                }
+            }
+        }
+    }
+
+    function SelectAllFunc(obj) {
+        var check_box_list = document.getElementsByName("MetricCheckBox");
+        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
+        // Clear the global variable properly
+        while(targetList.length) {
+            targetList.pop();
+        }
+        for (var i = 0; i < check_box_list.length; i++) {
+            if (check_box_list[i].parentNode.style.display == 'block') {
+                if (obj.checked) {
+                    check_box_list[i].checked = true;
+                    targetList.push(check_box_list[i].nextSibling.nodeValue);
+                } else {
+                    check_box_list[i].checked = false;
+                }
+            }
+        }
+    }
+
+    function MetricSelectMouseIn() {
+        MetricSelectInDiv = true;
+    }
+
+    function MetricSelectMouseOut() {
+        MetricSelectInDiv = false;
+    }
+
+    // Close dropdown when clicking outside of it
+    document.addEventListener('click', function(event) {
+        var metricSelectDiv = document.getElementById('MetricSelectDiv');
+        var filterMetricInput = document.getElementById('filterMetric');
+        // Check if click is outside the dropdown and not on the filterMetric input
+        if (metricSelectDiv.style.display === 'block' &&
+            !metricSelectDiv.contains(event.target) &&
+            event.target !== filterMetricInput) {
+            metricSelectDiv.style.display = 'none';
+        }
+    });
+
+    function MetricSearchFunc(event) {
+        if (event.keyCode != "13") {
+            return;
+        }
+        filterMetric = document.getElementById("filterMetric");
+        var check_box_list = document.getElementsByName("MetricCheckBox");
+        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
+        // Clear the global variable properly
+        while(targetList.length) {
+            targetList.pop();
+        }
+        if (filterMetric.value.length == 0) {
+            for (var i = 0; i < check_box_list.length; i++) {
+                check_box_list[i].parentNode.style.display = "none";
+                check_box_list[i].checked = false;
+            }
+            return;
+        }
+        var select_all_box = document.getElementsByName("MetricSelectAllBox");
+        select_all_box[0].checked = true;
+        select_all_box[0].parentNode.style.display = "block";
+
+        find = filterMetric.value.replace(/ +/g, '.*');
+        regexp = new RegExp(find, "i");
+
+        for (var i = 0; i < check_box_list.length; i++) {
+            if (check_box_list[i].nextSibling.nodeValue.search(regexp) >= 0) {
+                check_box_list[i].parentNode.style.display = "block";
+                check_box_list[i].checked = true;
+                targetList.push(check_box_list[i].nextSibling.nodeValue);
+            } else {
+                check_box_list[i].parentNode.style.display = "none";
+                check_box_list[i].checked = false;
+            }
+        }
+        var group_name = document.getElementById('filterMetricGroup');
+        group_name.value = filterMetric.value;
+    }
+
+    function MetricSelectSubmit() {
+        //var merge_check = document.getElementById('Merge');
+        //var stack_check = document.getElementById('Stack');
+        var group_name = document.getElementById('filterMetricGroup').value;
+        if (group_name.length === 0) {
+            alert("Group Name Cannot Be None");
+            return;
+        }
+
+        var max_value_data = document.getElementById('max_value').value;
+        if (max_value_data === '') {
+            max_value_data = 'duration';
+        } else if (max_value_data === '-1') {
+            max_value_data = 'dataMax';
+        } else {
+            max_value_data = parseInt(max_value_data);
+        }
+
+        var data = {};
+        var cur_name = group_name;
+        //if (merge_check.checked) {
+        data[cur_name] = {
+            'Max': max_value_data,
+            //'Stack': stack_check.checked,
+            'Stack': false,
+            'Sig': []
+        };
+        //}
+
+        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
+        for (var i = 0; i < targetList.length; i++) {
+            //if (!merge_check.checked) {
+            //    cur_name = CurMetricSelectList[i];
+            //    data[cur_name] = {
+            //        'Max': max_value_data,
+            //        'Stack': stack_check.checked,
+            //        'Sig': []
+            //    };
+            //}
+            data[cur_name]['Sig'].push(targetList[i]);
+        }
+        // Clear the global variable properly
+        while(targetList.length) {
+            targetList.pop();
+        }
+        var check_box_list = document.getElementsByName("MetricCheckBox");
+        for (var i = 0; i < check_box_list.length; i++) {
+            check_box_list[i].parentNode.style.display = "none";
+            check_box_list[i].checked = false;
+        }
+        $.ajax({
+            url: '/api/show/query',
+            type: 'POST',
+            contentType: 'application/json;charset=utf-8',
+            data: JSON.stringify({
+                query: data,
+                secondary: activePanel === 2
+            }),
+            success: function (res) {
+                if (res.code === 0) {
+                    append_metrics(res.data, activePanel);
+                    // Hide the metric selection dropdown after plotting
+                    document.getElementById("MetricSelectDiv").style.display = "none";
+                } else {
+                    alert(res.msg);
+                }
+            },
+            error: function () {
+                alert('Failed to plot the metric info...');
+            }
+        });
+    }
+
+    function ClearAll() {
+        var isSecondary = activePanel === 2;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+        targetMetricSelectList = {};
+        MetricSelectColor = {};
+        option_update({
+            dataZoom: [{
+                xAxisIndex: []
+            }, {
+                xAxisIndex: []
+            }],
+            legend: {
+                type: "scroll",
+                show: true,
+                bottom: "30px",
+                orient: "horizontal",
+                icon: "square",
+            }
+        }, true, activePanel);
+    }
+
+    // Function to update all existing series data without clearing them
+    function updateAll(newData, panel = 1) {
+        var isSecondary = panel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetTimeLine = isSecondary ? TimeLine2 : TimeLine;
+        var targetDataInterval = isSecondary ? DataInterval2 : DataInterval;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+        var option = targetChart.getOption();
+        var series = option.series || [];
+        var xAxis = option.xAxis || [];
+        var yAxis = option.yAxis || [];
+
+        // Update x axis with new timeline
+        for (var i = 0; i < xAxis.length; i++) {
+            xAxis[i].data = targetTimeLine;
+        }
+
+        // Update each series with new data
+        for (var i = 0; i < series.length; i++) {
+            var s = series[i];
+            var parts = s.id.split('&');
+            if (parts.length >= 2) {
+                var group_name = parts[0];
+                var signal_name = parts[1];
+
+                // Find corresponding data in newData
+                if (newData[group_name] && newData[group_name]['Sig'][signal_name]) {
+                    s.data = newData[group_name]['Sig'][signal_name];
+                }
+            }
+        }
+
+        // Update yAxis max values if 'duration' is used
+        for (var i = 0; i < yAxis.length; i++) {
+            if (yAxis[i].max === 'duration') {
+                yAxis[i].max = targetDataInterval;
+            }
+        }
+
+        targetChart.setOption({
+            xAxis: xAxis,
+            yAxis: yAxis,
+            series: series
+        });
+
+        // Update zoom inputs
+        if (panel === activePanel) {
+            var targetZoomStart = isSecondary ? zoom_input_start2 : zoom_input_start;
+            var targetZoomEnd = isSecondary ? zoom_input_end2 : zoom_input_end;
+            var targetZoomDur = isSecondary ? zoom_output_dur2 : zoom_output_dur;
+
+            if (targetZoomStart && targetZoomEnd && targetZoomDur) {
+                targetZoomStart.value = targetTimeLine[0];
+                targetZoomEnd.value = targetTimeLine[targetTimeLine.length - 1];
+                targetZoomDur.value = targetZoomEnd.value - targetZoomStart.value + 1;
+            }
+        }
+    }
+
+    function ExportTemplate(isExport) {
+        var template_name = document.getElementById('template_name').value;
+        var isSecondary = activePanel === 2;
+        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+        if (isExport) {
+            $.ajax({
+                url: '/api/temp/export',
+                type: 'POST',
+                contentType: 'application/json;charset=utf-8',
+                data: JSON.stringify({
+                    export: template_name,
+                    signal: targetMetricSelectList,
+                }),
+                success: function (res) {
+                    if (res.code !== 0) {
+                        alert(res.msg);
+                    }
+                },
+                error: function () {
+                    alert('Failed to Export template file, please check the directory is exist and writable');
+                }
+            });
+        } else {
+            $.ajax({
+                url: '/api/temp/import',
+                type: 'POST',
+                contentType: 'application/json;charset=utf-8',
+                data: JSON.stringify({
+                    import: template_name,
+                    secondary: activePanel === 2
+                }),
+                success: function (res) {
+                    if (res.code === 0) {
+                        append_metrics(res.data, activePanel)
+                    } else {
+                        alert(res.msg);
+                    }
+                },
+                error: function () {
+                    alert('Failed to  Import template file, please check the template file is exist');
+                }
+            });
+        }
+    }
+
+
+    // Helper function to set up chart events for a given panel
+    function setupChartEvents(chart, panelNum, timeLine, dataInterval, metricSelectList, lastClickedTargetRef) {
+        var cur_data_index = -1;
+        var cur_series_index = -1;
+        var targetTimeNames = panelNum === 2 ? TimeNames2 : TimeNames;
+        var targetZoomStart = panelNum === 2 ? zoom_input_start2 : zoom_input_start;
+        var targetZoomEnd = panelNum === 2 ? zoom_input_end2 : zoom_input_end;
+        var targetZoomDur = panelNum === 2 ? zoom_output_dur2 : zoom_output_dur;
+
+        // Enable zoom selection mode by default (left mouse button drag for zoom)
+        chart.dispatchAction({
+            type: 'takeGlobalCursor',
+            key: 'dataZoomSelect',
+            dataZoomSelectActive: true
+        });
+
+        chart.on('mouseover', function (event_params) {
+            cur_data_index = event_params.dataIndex;
+            cur_series_index = event_params.seriesIndex;
+        });
+        chart.on('mouseout', function (event_params) {
+            cur_data_index = -1;
+            cur_series_index = -1;
+        });
+        chart.on('downplay', function (event_params) {
+            let { batch } = event_params;
+            let { series } = chart.getOption();
+            let res = {};
+            for (let b in batch) {
+                let idx = batch[b].seriesIndex;
+                let dataIdx = batch[b].dataIndex;
+                let name = series[idx].id.split('&')[1];
+                let data = series[idx]["data"][dataIdx];
+                res[name] = data;
+            }
+            window.downplaycache = { time: batch[0].dataIndex, res, original: event_params };
+        });
+        chart.on('click', function(params) {
+            if (params.componentType === 'legend') {
+                lastClickedTargetRef.type = 'legend';
+                lastClickedTargetRef.name = params.name;
+                console.log('selected target (legend):', lastClickedTargetRef);
+            } else if (params.componentType === 'series') {
+                lastClickedTargetRef.type = 'series';
+                lastClickedTargetRef.name = params.seriesName;
+                console.log('selected target (series):', lastClickedTargetRef);
+            }
+        });
+
+        // Add legendselectchanged event for easier selection via legend click
+        chart.on('legendselectchanged', function(params) {
+            // When user toggles a legend item, select it for potential deletion
+            if (params.name) {
+                lastClickedTargetRef.type = 'legend';
+                lastClickedTargetRef.name = params.name;
+                console.log('selected target (legend toggle):', lastClickedTargetRef);
+            }
+        });
+
+        // Add click handler for easier bar selection - click anywhere on series area
+        chart.getZr().on('click', function(params) {
+            let option = chart.getOption();
+            let grids = option.grid || [];
+            let series = option.series || [];
+
+            if (grids.length === 0 || series.length === 0) return;
+
+            // Find which grid was clicked based on y position
+            let clickedY = params.offsetY;
+            let clickedGrid = null;
+            let clickedGridIndex = -1;
+
+            for (let i = 0; i < grids.length; i++) {
+                let grid = grids[i];
+                let chartRect = chart.getZr().getWidth() || chart.getZr().dom.clientWidth;
+                let chartHeight = chart.getZr().getHeight() || chart.getZr().dom.clientHeight;
+
+                // Get grid position from option (top is percentage or pixel value)
+                let gridTop = grid.top;
+                let gridHeight = grid.height;
+                let gridBottom;
+
+                // Convert grid.top to pixels if it's a percentage or needs conversion
+                if (typeof gridTop === 'string' && gridTop.endsWith('%')) {
+                    gridTop = (parseFloat(gridTop) / 100) * chartHeight;
+                }
+                if (typeof gridHeight === 'string' && gridHeight.endsWith('%')) {
+                    gridHeight = (parseFloat(gridHeight) / 100) * chartHeight;
+                }
+                gridBottom = gridTop + gridHeight;
+
+                // Check if click is within this grid's vertical range
+                if (clickedY >= gridTop && clickedY <= gridBottom) {
+                    clickedGrid = grid;
+                    clickedGridIndex = i;
+                    break;
+                }
+            }
+
+            if (clickedGrid && clickedGrid.id) {
+                // Find series belonging to this grid
+                for (let i = 0; i < series.length; i++) {
+                    let s = series[i];
+                    if (s.name === clickedGrid.id) {
+                        lastClickedTargetRef.type = 'series';
+                        lastClickedTargetRef.name = s.name;
+                        console.log('selected target (grid click):', lastClickedTargetRef);
+                        return;
+                    }
+                }
+            }
+        });
+        chart.on('datazoom', function (event_params) {
+            let zoom = chart.getModel().option.dataZoom[0];
+            window['zoom_start_' + panelNum] = zoom.start;
+            window['zoom_end_' + panelNum] = zoom.end;
+            window['zoom_start_val_' + panelNum] = timeLine[zoom.startValue];
+            window['zoom_end_val_' + panelNum] = timeLine[zoom.endValue];
+            // Only update zoom input fields if this is the active panel
+            if (targetZoomStart && panelNum === activePanel) {
+                targetZoomStart.value = timeLine[zoom.startValue];
+                targetZoomEnd.value = timeLine[zoom.endValue];
+                targetZoomDur.value = targetZoomEnd.value - targetZoomStart.value + 1;
+            }
+        });
+        chart.getZr().off('dblclick');
+        chart.getZr().on('dblclick', function (param) {
+            let x = param.offsetX;
+            let y = param.offsetY;
+            let result = chart.convertFromPixel({
+                seriesIndex: 0,
+                xAxisIndex: 0,
+            }, [x, y]);
+            if (result === undefined)
+                return
+            let xAxis = result[0];
+            if (xAxis === undefined)
+                xAxis = -1;
+            var option = chart.getOption();
+            var setting = { 'series': [] }
+            for (var i = 0; i < option['series'].length; i++) {
+                tmp = option['series'][i]['markLine']
+                tmp['data'][0]['xAxis'] = xAxis
+                setting['series'].push({ 'markLine': tmp })
+            }
+            chart.setOption(setting)
+        });
+        window.addEventListener('resize', function() {
+            chart.resize();
+        });
+    }
+
+
+    function ProcessH5(res, panel = 1){
+        if (res.code === 0) {
+            var isSecondary = panel === 2;
+            var targetTitle = isSecondary ? Title2 : Title;
+            var targetDataInterval = isSecondary ? DataInterval2 : DataInterval;
+            var targetTimeLine = isSecondary ? TimeLine2 : TimeLine;
+            var targetTimeNames = isSecondary ? TimeNames2 : TimeNames;
+            var targetMetricNames = isSecondary ? MetricNames2 : MetricNames;
+            var targetZoomStart = isSecondary ? zoom_input_start2 : zoom_input_start;
+            var targetZoomEnd = isSecondary ? zoom_input_end2 : zoom_input_end;
+            var targetZoomDur = isSecondary ? zoom_output_dur2 : zoom_output_dur;
+
+            if (isSecondary) {
+                Title2 = res.data['title'];
+                $("#panel2Title").text(Title2);
+            } else {
+                Title = res.data['title'];
+                // Only update main title if not in split view mode
+                if (!isSplitView) {
+                    $("#title").text(Title);
+                }
+                $("#panel1Title").text(Title);
+            }
+
+            if (isSecondary) {
+                DataInterval2 = res.data['config']['interval'];
+                TimeLine2 = res.data['times'];
+                for (var i in TimeLine2) {
+                    TimeLine2[i] = parseInt(TimeLine2[i]);
+                }
+                TimeNames2 = res.data['names'];
+                MetricNames2 = res.data['signal'];
+                window.zoom_start_val2 = TimeLine2[0];
+                window.zoom_end_val2 = TimeLine2[TimeLine2.length - 1];
+            } else {
+                DataInterval = res.data['config']['interval'];
+                TimeLine = res.data['times'];
+                for (var i in TimeLine) {
+                    TimeLine[i] = parseInt(TimeLine[i]);
+                }
+                TimeNames = res.data['names'];
+                MetricNames = res.data['signal'];
+                window.zoom_start_val = TimeLine[0];
+                window.zoom_end_val = TimeLine[TimeLine.length - 1];
+            }
+
+            var targetDom = isSecondary ? dom2 : dom;
+            var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+            var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+            // Initialize chart for panel 2 if needed
+            if (isSecondary && !myChart2) {
+                myChart2 = echarts.init(dom2, null, {
+                    renderer: 'canvas',
+                    useDirtyRect: false
+                });
+
+                // Copy event handlers for panel 2
+                setupChartEvents(myChart2, 2, TimeLine2, DataInterval2, MetricSelectList2, lastClickedTarget2);
+            }
+
+            var targetChart = isSecondary ? myChart2 : myChart;
+
+            var currentDataInterval = isSecondary ? DataInterval2 : DataInterval;
+            var currentTimeLine = isSecondary ? TimeLine2 : TimeLine;
+            var currentZoomStart = isSecondary ? zoom_input_start2 : zoom_input_start;
+            var currentZoomEnd = isSecondary ? zoom_input_end2 : zoom_input_end;
+            var currentZoomDur = isSecondary ? zoom_output_dur2 : zoom_output_dur;
+
+            // Only update zoom input fields if this is the active panel
+            if (currentZoomStart && panel === activePanel) {
+                currentZoomStart.value = currentTimeLine[0];
+                currentZoomEnd.value = currentTimeLine[currentTimeLine.length - 1];
+                currentZoomDur.value = currentZoomEnd.value - currentZoomStart.value + 1;
+            }
+
+            var option = {
+                toolbox: {
+                    feature: {
+                        dataZoom: { yAxisIndex: 'none' },
+                        dataView: {
+                            readOnly: true,
+                            optionToContent: function (opt) {
+                                var series = opt.series;
+                                var dataZoomOpt = targetChart.getOption().dataZoom;
+                                var start = 0, end = 0, dur = 1;
+                                if (dataZoomOpt && dataZoomOpt.length > 0 && dataZoomOpt[0].startValue !== undefined) {
+                                    start = dataZoomOpt[0].startValue;
+                                    end = dataZoomOpt[0].endValue;
+                                    dur = (end - start + 1);
+                                }
+                                var table = '<table style="width:100%;text-align:center"><tbody><tr><td>Metric</td><td>Sum</td><td>Avg</td></tr>';
+                                for (var i = 0, l = series.length; i < l; i++) {
+                                    sum = 0;
+                                    for (var k = start; k < end + 1; k++) {
+                                        sum += series[i].data[k];
+                                    }
+                                    table += "<tr><td>" + series[i].id
+                                        + "</td><td>" + sum
+                                        + "</td><td>" + (sum / dur)
+                                        + "</td></tr>";
+                                }
+                                table += "</tbody></table>";
+                                return table;
+                            },
+                        },
+                    }
+                },
+                grid: {
+                    left: '20%',
+                    bottom: 60
+                },
+                title: {
+                    text: '',
+                    left: "center",
+                    top: "top",
+                },
+                legend: {
+                    type: "scroll",
+                    show: true,
+                    bottom: "30px",
+                    orient: "horizontal",
+                    icon: "square",
+                    selectedMode: true,
+                },
+                tooltip: {
+                    show: true,
+                    trigger: "axis",
+                    triggerOn: "mousemove|click",
+                    order: "valueDesc",
+                    position: function (point, params, dom, rect, size) {
+                        var viewWidth = size.viewSize[0];
+                        var viewHeight = size.viewSize[1];
+                        var boxWidth = size.contentSize[0];
+                        var boxHeight = size.contentSize[1];
+                        var posX = 0;
+                        var posY = 0;
+
+                        if (point[0] + boxWidth + 5 <= viewWidth) {
+                            posX = point[0];
+                        } else {
+                            posX = point[0] - boxWidth;
+                        }
+
+                        return [posX, point[1]];
+                    },
+                    formatter: function (data) {
+                        var ndata = data.sort((a, b) => {
+                            return b.value - a.value;
+                        });
+                        let str = 'Time : ' + ndata[0].axisValue + ',' + targetTimeNames[ndata[0].dataIndex];
+                        var option = targetChart.getOption();
+                        if (option['series'][ndata[0].seriesIndex]['stack'] != null) {
+                            var sum = 0;
+                            for (var i = 0; i < data.length; i++) {
+                                sum += data[i].value;
+                            }
+                            str += ',' + sum;
+                        }
+                        str += '<br>';
+                        for (var i = 0; i < data.length; i++) {
+                            var name = ndata[i].seriesId.split('&')[1]
+                            let tmp_marker = option['series'][ndata[i].seriesIndex]['areaStyle']['color']
+                            str += ndata[i].marker.replace(ndata[i].color, tmp_marker);
+                            let tmp = name + ' : ' + ndata[i].value;
+                            if (cur_series_index == ndata[i].seriesIndex && cur_data_index == ndata[i].dataIndex) {
+                                str += '<span style="background-color:#FF7F50;">' + tmp + '</span>';
+                            } else {
+                                str += tmp;
+                            }
+                            str += '<br>';
+                        }
+                        return str;
+                    },
+                },
+                dataZoom: [{
+                    show: true,
+                    type: "slider",
+                    xAxisIndex: [],
+                    realtime: true,
+                    start: 0,
+                    end: 100,
+                    dur: 100,
+                    orient: "horizontal",
+                    zoomLock: false,
+                    filterMode: "filter",
+                    bottom: 10
+                }, {
+                    type: 'inside',
+                    xAxisIndex: [0],
+                    start: 0,
+                    end: 100
+                }],
+                xAxis: [],
+                yAxis: [],
+                series: [],
+                grid: [],
+            };
+            targetChart.setOption(option);
+
+            // Enable zoom selection mode by default (left mouse button drag for zoom)
+            targetChart.dispatchAction({
+                type: 'takeGlobalCursor',
+                key: 'dataZoomSelect',
+                dataZoomSelectActive: true
+            });
+
+            // Set up chart events
+            setupChartEvents(targetChart, panel, currentTimeLine, currentDataInterval, targetMetricSelectList, isSecondary ? lastClickedTarget2 : lastClickedTarget);
+
+            // Rebuild metric selection dropdown for the active panel after loading file
+            rebuildMetricSelectDiv();
+        } else {
+            alert(res.msg);
+        }
+
+    }
+
+    // Function to rebuild MetricSelectDiv based on active panel
+    function rebuildMetricSelectDiv() {
+        var MetricSelectDiv = document.getElementById("MetricSelectDiv");
+        // Clear existing checkboxes
+        MetricSelectDiv.innerHTML = '';
+
+        var isSecondary = activePanel === 2;
+        var currentMetricNames = isSecondary ? MetricNames2 : MetricNames;
+
+        var tmp_div = document.createElement("div");
+        var tmp_input = document.createElement("input");
+        tmp_input.setAttribute("name", "MetricSelectAllBox");
+        tmp_input.setAttribute("type", "checkbox");
+        tmp_input.setAttribute("onclick", "SelectAllFunc(this)");
+        tmp_input.setAttribute("value", "SelectAll");
+        tmp_div.style.display = "none";
+
+        var tmp_text = document.createTextNode("SelectAll");
+        tmp_div.appendChild(tmp_input);
+        tmp_div.appendChild(tmp_text);
+        MetricSelectDiv.appendChild(tmp_div);
+
+        for (var i = 0; i < currentMetricNames.length; i++) {
+            tmp_div = document.createElement("div");
+            tmp_input = document.createElement("input");
+            tmp_input.setAttribute("name", "MetricCheckBox");
+            tmp_input.setAttribute("type", "checkbox");
+            tmp_input.setAttribute("onclick", "MetricCheck(this)");
+            tmp_input.setAttribute("value", currentMetricNames[i]);
+            tmp_div.style.display = "none";
+
+            tmp_text = document.createTextNode(currentMetricNames[i]);
+            tmp_div.appendChild(tmp_input);
+            tmp_div.appendChild(tmp_text);
+            MetricSelectDiv.appendChild(tmp_div);
+        }
+    }
+
+
+    $(document).ready(function () {
+        // Check if page is embedded
+        const urlParams = new URLSearchParams(window.location.search);
+        const isEmbedded = urlParams.get('embedded') === 'true';
+
+        // Hide nav-bar if embedded and add embedded class to body
+        if (isEmbedded) {
+            const navBar = document.querySelector('.nav-bar-container');
+            if (navBar) {
+                navBar.classList.add('hidden');
+            }
+            document.body.classList.add('embedded');
+        }
+
+        // Initialize panel 2 zoom input variables to point to shared DOM elements
+        // These are shared controls that affect the active panel
+        zoom_input_start2 = document.getElementById('zoom_start');
+        zoom_input_end2 = document.getElementById('zoom_end');
+        zoom_output_dur2 = document.getElementById('zoom_duration');
+
+        // Initialize active panel state on page load
+        setActivePanel(1);
+
+        // $('#initBtn').on('click', function () {
+        //     var initName = $('#initData').val().trim();
+        //     if (initName.length > 0) {
+        //         window.location.href = '/metricviewer?name=' + encodeURIComponent(initName);
+        //     }
+        // });
+        $('#fileInput').on('change', function (e) {
+            e.preventDefault();
+            var formData = new FormData();
+            var fileInput = e.target;
+            if (fileInput.files.length == 1) {
+                formData.append('file', fileInput.files[0]);
+                formData.append('secondary', activePanel === 2 ? 'true' : 'false');
+
+                var isSecondary = activePanel === 2;
+                var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+                // Check if there are existing plotted metrics and save their configuration
+                var hasExistingMetrics = Object.keys(targetMetricSelectList).length > 0;
+                var savedMetricConfig = null;
+                if (hasExistingMetrics) {
+                    savedMetricConfig = JSON.parse(JSON.stringify(targetMetricSelectList));
+                }
+
+                $.ajax({
+                    url: '/api/show/upload',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function (res) {
+                        ProcessH5(res, activePanel);
+                        // If there were existing metrics, re-query and update their data from new file
+                        if (hasExistingMetrics && savedMetricConfig) {
+                            $.ajax({
+                                url: '/api/show/query',
+                                type: 'POST',
+                                contentType: 'application/json;charset=utf-8',
+                                data: JSON.stringify({
+                                    query: savedMetricConfig,
+                                    secondary: isSecondary
+                                }),
+                                success: function (queryRes) {
+                                    if (queryRes.code === 0) {
+                                        // Update existing series data without clearing
+                                        updateAll(queryRes.data, activePanel);
+                                    }
+                                },
+                                error: function () {
+                                    alert('Failed to re-query metrics from new file...');
+                                }
+                            });
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        alert('Upload failed:', error);
+                    }
+                });
+            } else {
+                alert('Please select a file to upload. (Don\'t support multiple files.)');
+            }
+        });
+    });
+
+    function showLoading() {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+    }
+    
+    function hideLoading() {
+        document.getElementById('loadingOverlay').style.display = 'none';
+    }
+
+    function LoadRemoteH5() {
+        var remote_h5_url = document.getElementById('remote_h5').value.trim();
+    
+        if (!remote_h5_url) {
+            alert('Please input a remote HDF5 file path');
+            return;
+        }
+    
+        showLoading(); // 假设 showLoading 是一个显示加载指示器的函数
+
+        // 从远程 URL 获取文件
+        fetch(remote_h5_url)
+            .then(response => {
+                if (response.ok) return response.blob();
+                throw new Error('Network response was not ok.');
+            })
+            .then(blob => {
+                // 假设我们知道文件名和类型
+                const filename = 'downloaded_file.h5';
+                const mimeType = 'application/octet-stream';
+
+                // 创建一个新的 File 对象
+                const file = new File([blob], filename, { type: mimeType });
+
+                // 准备 FormData 以便上传
+                var formData = new FormData();
+                formData.append('file', file);
+
+                // 使用 AJAX 上传文件
+                $.ajax({
+                    url: '/api/show/upload',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function (res) {
+                        hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
+                        ProcessH5(res); // 假设 ProcessH5 是一个处理文件的函数
+                    },
+                    error: function (xhr, status, error) {
+                        hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
+                        alert('Upload failed: ' + error);
+                    }
+                });
+            })
+            .catch(error => {
+                hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
+                console.error('There has been a problem with your fetch operation:', error);
+                alert('Failed to load the file: ' + error.message);
+            });
+    }
+
+
+
+
+</script>
+</body>
+
+</html>

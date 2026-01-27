@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>TraceViewer</title>
+    <link rel="icon" href="/static/image/traceviewer.ico" type="image/x-icon">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            width: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .nav-bar {
+            height: 14px;
+            background-color: #333;
+            font-family: sans-serif;
+            font-size: 80%;
+            position: relative;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .nav-bar.hidden {
+            display: none !important;
+        }
+
+        .header {
+            width: 100%;
+            height: 24px;
+            background-color: #ddd;
+            font-family: sans-serif;
+            font-size: 80%;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 10;
+        }
+
+        .content {
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .footer {
+            width: 100%;
+            height: 20px;
+            background-color: #ddd;
+            text-align: center;
+            font-family: sans-serif;
+            font-size: 80%;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+
+        .split-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .split-container.horizontal {
+            flex-direction: row;
+        }
+
+        .split-panel {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #ccc;
+        }
+
+        .split-panel.active {
+            border: 2px solid #007bff;
+        }
+
+        .split-panel iframe {
+            width: 100%;
+            height: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+            pointer-events: none;
+        }
+
+        .split-panel.active iframe {
+            pointer-events: auto;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Embedded mode adjustments */
+        body.embedded .nav-bar {
+            display: none !important;
+        }
+        body.embedded .footer {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <div class="nav-bar">
+            <a id="path" href='admin' style="float: left; font-weight: bold; color: #fff;">ArchVisual</a>
+            <span id="split" style="float: left; margin-left: 2px;">:</span>
+            <!--
+            <a id="path" href='summaryviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">SummaryVis</a>
+            <span id="split" style="float: left; margin-left: 2px;">|</span>
+            -->
+            <a id="path" href='metricviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">MetricViewer</a>
+            <span id="split" style="float: left; margin-left: 2px;">|</span>
+            <a id="path" href='traceviewer' style="float: left; margin-left: 2px; margin-right: 2px; font-weight: bold; color: #fff;">TraceViewer</a>
+            <span id="split" style="float: left; margin-left: 2px;">|</span>
+            <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">CrossViewer</a>
+        </div>
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <button id="splitToggle" type="button" onclick="toggleSplitView()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">SplitView</button>
+                <select id="splitDirection" style="height:21px; font-size: 100%" onchange="changeSplitDirection()">
+                    <option value="vertical">Vert</option>
+                    <option value="horizontal" selected>Hori</option>
+                </select>
+                <span id="panel1Label" style="font-weight: bold;">Panel 1</span>
+            </div>
+        </div>
+        <div class="content">
+            <div id="splitContainer" class="split-container">
+                <div id="panel1" class="split-panel" onclick="handlePanelClick(event, 1)">
+                    <iframe id="catapult_frame1" src="/static/catapult_trace_viewer.html"></iframe>
+                </div>
+                <div id="panel2" class="split-panel hidden" onclick="handlePanelClick(event, 2)">
+                    <iframe id="catapult_frame2" src="/static/catapult_trace_viewer.html"></iframe>
+                </div>
+            </div>
+        </div>
+        <div class="footer">
+            <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
+        </div>
+    </div>
+</body>
+<script>
+    // Check if page is embedded
+    const urlParams = new URLSearchParams(window.location.search);
+    const isEmbedded = urlParams.get('embedded') === 'true';
+
+    // Hide nav-bar if embedded and add embedded class to body
+    if (isEmbedded) {
+        const navBar = document.querySelector('.nav-bar');
+        if (navBar) {
+            navBar.classList.add('hidden');
+        }
+        const footer = document.querySelector('.footer');
+        if (footer) {
+            footer.classList.add('hidden');
+        }
+        document.body.classList.add('embedded');
+    }
+
+    // Dual view state
+    var isSplitView = false;
+    var splitDirection = 'horizontal';
+    var activePanel = 1;
+
+    // Toggle split view
+    function toggleSplitView() {
+        isSplitView = !isSplitView;
+        var panel2 = document.getElementById('panel2');
+        var splitContainer = document.getElementById('splitContainer');
+        var splitToggle = document.getElementById('splitToggle');
+
+        if (isSplitView) {
+            panel2.classList.remove('hidden');
+            splitToggle.textContent = 'SingleView';
+            changeSplitDirection();
+        } else {
+            panel2.classList.add('hidden');
+            splitContainer.classList.remove('horizontal');
+            splitToggle.textContent = 'SplitView';
+            activePanel = 1;
+            setActivePanel(1);
+        }
+    }
+
+    // Change split direction
+    function changeSplitDirection() {
+        if (!isSplitView) return;
+        splitDirection = document.getElementById('splitDirection').value;
+        var splitContainer = document.getElementById('splitContainer');
+        if (splitDirection === 'horizontal') {
+            splitContainer.classList.add('horizontal');
+        } else {
+            splitContainer.classList.remove('horizontal');
+        }
+    }
+
+    // Set active panel for operations
+    function setActivePanel(panel) {
+        activePanel = panel;
+        var panel1Label = document.getElementById('panel1Label');
+        var panel1 = document.getElementById('panel1');
+        var panel2 = document.getElementById('panel2');
+
+        if (panel === 2) {
+            panel1Label.textContent = 'Panel 2';
+            panel1.classList.remove('active');
+            panel2.classList.add('active');
+        } else {
+            panel1Label.textContent = 'Panel 1';
+            panel1.classList.add('active');
+            panel2.classList.remove('active');
+        }
+    }
+
+    // Handle panel click with event propagation stop
+    function handlePanelClick(event, panel) {
+        event.stopPropagation();
+        setActivePanel(panel);
+    }
+
+    // Get active iframe
+    function getActiveIframe() {
+        if (activePanel === 2) {
+            return window.frames[1] || document.getElementById('catapult_frame2').contentWindow;
+        }
+        return window.frames[0] || document.getElementById('catapult_frame1').contentWindow;
+    }
+
+    const bc = new BroadcastChannel('klxarch');
+    window.bc = bc;
+    bc.onmessage = function (e) {
+        console.log('Receive Channel data:', e.data);
+        if (e.data.type == "SYNC_METRIC_TO_TRACE") {
+            let { center, duration } = e.data;
+            var iframeWindow = getActiveIframe();
+            let view = iframeWindow._tview;
+            view.zoomToTarget(center, duration);
+        }
+    };
+    function child_view_change_event(center, duration, scale) {
+        const msg = {
+            type: "SYNC_TRACE_TO_METRIC",
+            center: center,
+            duration: duration
+        }
+        console.log("SYNC", msg, scale);
+        window.bc.postMessage(msg);
+    }
+
+    // Initialize active panel state on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        setActivePanel(1);
+    });
+</script>
+
+</html>

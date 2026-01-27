@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ArchSummary</title>
+    <script type="text/javascript" src="/static/js/echarts.min.js"></script>
+    <script src="/static/js/jquery-3.4.0.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/extension/dataTool.min.js"></script>
+    <link rel="icon" href="/static/image/summaryviewer.ico" type="image/x-icon">
+    <style type="text/css">
+        * {
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+
+        .header {
+            width: 100%;
+            height: 24px;
+            position: absolute;
+            margin-top:14px;
+            font-family: sans-serif;
+            font-size: 80%;
+        }
+
+        .content {
+            width: 100%;
+            height: calc(100% - 3% - 40px);
+            position: absolute;
+            top: 5%;
+            left: 0px;
+            z-index: 2;
+            overflow-y: scroll;
+            font-family: sans-serif;
+        }
+
+        .footer {
+            width: 100%;
+            height: 2%;
+            position: absolute;
+            text-align: center;
+            font-family: sans-serif;
+            font-size: 80%;
+            color: #ddd;
+            z-index: 8;
+            left: 0;
+            bottom: 0;
+        }
+    </style>
+</head>
+
+<body style="height: 100%; margin: 0">
+    <div style="font-family: sans-serif; font-size: 80%; background-color: #333; position: absolute; top: 0; left: 0; width: 100%; height: 24px;">
+        <a id="path" href='admin' style="float: left; color: #fff;">ArchVisual</a>
+        <span id="split" style="float: left; margin-left: 2px;">:</span>
+        <a id="path" href='summaryviewer' style="float: left; margin-left: 2px; margin-right: 2px; font-weight: bold; color: #fff;">SummaryVis</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='metricviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">MetricViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='traceviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">TraceViewer</a>
+        <span id="split" style="float: left; margin-left: 2px;">|</span>
+        <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">CrossViewer</a>
+        <!--
+        <a id="path" href='traceviewerv2' style="float: left; margin-left: 2px; margin-right: 2px; color:cadetblue">TraceViewerV2</a>
+        <span id="reversion" style="float: right">Rev 0.1</span>
+        -->
+    </div>
+
+    <div class="header" style="background-color: #ddd; font-size: 80%">
+        <div style="display: flex; justify-content: space-between">
+            <div style="text-align: left; flex-grow: 0">
+                <button id="initBtn" type="button" onclick="document.getElementById('fileInput').click();" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load</button>
+                <input type="file" id="fileInput" style="display: none;">
+                <span id="title" style="float: center;">^_^</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="content">
+        <div id="heatmap" style="height: 100%"></div>
+    </div>
+    <div class="footer">
+        <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
+    </div>
+
+    <script type="text/javascript">
+    //var dom = document.getElementById('heatmap');
+    //var dom_fixed_height = 80;
+    //var myChart = echarts.init(dom, null, {renderer: 'canvas',
+    //                                       useDirtyRect: false });
+    // Initialize a chart instance.
+    //console.log(document.getElementById('heatmap'));
+    var myChart = echarts.init(document.getElementById('heatmap'));
+
+    // Define chart options.
+    var option = {
+        // Define the tooltip for each data item.
+        tooltip: {
+            position: 'top'
+        },
+        animation: false,
+        grid: {
+            height: '50%',
+            y: '10%'
+        },
+        xAxis: {
+            type: 'category',
+            // Example category labels for the x-axis.
+            data: ['Column 1', 'Column 2', 'Column 3'],
+            splitArea: {
+                show: true
+            }
+        },
+        yAxis: {
+            type: 'category',
+            // Example category labels for the y-axis.
+            data: ['Row 1', 'Row 2', 'Row 3'],
+            splitArea: {
+                show: true
+            }
+        },
+        visualMap: {
+            min: 0,
+            max: 10,
+            calculable: true,
+            orient: 'horizontal',
+            left: 'center',
+            bottom: '20%'
+        },
+        series: [{
+            name: 'Heatmap Series',
+            type: 'heatmap',
+            data: [], // We'll populate this with data from the CSV.
+            label: {
+                show: true
+            },
+            emphasis: {
+                itemStyle: {
+                    shadowBlur: 10,
+                    shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+            }
+        }]
+    };
+
+    // Load and parse the CSV file.
+    function loadAndParseCSV(csvPath) {
+        fetch(csvPath)
+            .then(response => response.text())
+            .then(csv => {
+                var data = echarts.dataTool.gexf.parse(csv);
+                // You would need to process the CSV data into the correct format for ECharts.
+                // For the heatmap, you need an array of arrays with [xIndex, yIndex, value].
+                // Assuming your CSV has 3 columns and each row represents a point on the heatmap.
+
+                var heatmapData = [];
+                var heatmapXAxisData = [];
+                var heatmapYAxisData = [];
+                var lines = csv.split('\n');
+                lines.forEach(function(line, rowIndex) {
+                    var items = line.split(',');
+                    items.forEach(function(item, columnIndex) {
+                        // Convert each value to a number.
+                        heatmapData.push([columnIndex, rowIndex, parseFloat(item)]);
+                        heatmapXAxisData.push(columnIndex);
+                        heatmapYAxisData.push(rowIndex);
+                    });
+                });
+
+                // Update the ECharts heatmap series data with the parsed CSV data.
+                option.series[0].data = heatmapData;
+                option.xAxis.data = heatmapXAxisData;
+                option.yAxis.data = heatmapYAxisData;
+                myChart.setOption(option);
+            })
+            .catch(error => console.error('Error loading CSV data:', error));
+    }
+
+    // Now, trigger the CSV loading and parsing.
+    loadAndParseCSV('static/example.csv');
+</script>
+</body>
+</html>
