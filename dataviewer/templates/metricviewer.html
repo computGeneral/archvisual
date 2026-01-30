@@ -655,7 +655,7 @@
                 areaStyle: {
                     normal: {
                         color: border_color,
-                        opacity: 0.3
+                        opacity: 0.25
                     }
                 },
                 lineStyle: {
@@ -1163,6 +1163,7 @@
             dataZoomSelectActive: true
         });
 
+        // Use emphasis highlight for hover effects instead of manual mouseover
         chart.on('mouseover', function (event_params) {
             cur_data_index = event_params.dataIndex;
             cur_series_index = event_params.seriesIndex;
