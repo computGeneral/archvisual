@@ -638,9 +638,15 @@
         if (targetMetricSelectList[group_name]['Stack']) {
             stack_field = group_name;
         }
+        var existing_signal_count = targetMetricSelectList[group_name]['Sig'].length;
         for (var signal in series_data) {
-            color = colorarrays[targetMetricSelectList[group_name]['Sig'].length % colorarrays.length];
-            tmp_mark = MarkLine(signal, color);
+            // Different border color for each signal in the group
+            var border_color = colorarrays[existing_signal_count % colorarrays.length];
+            // Same fill color as border but with 50% transparency
+            var fill_color = border_color;
+            var fill_opacity = '0.5';
+
+            tmp_mark = MarkLine(signal, border_color);
             option['series'].push({
                 id: group_name + "&" + signal,
                 type: 'line',
@@ -648,7 +654,14 @@
                 name: group_name,
                 areaStyle: {
                     normal: {
-                        color: color
+                        color: border_color,
+                        opacity: 0.3
+                    }
+                },
+                lineStyle: {
+                    normal: {
+                        color: border_color,
+                        width: 2
                     }
                 },
                 stack: stack_field,
@@ -660,6 +673,7 @@
                 // sampling: 'lttb'
             });
             targetMetricSelectList[group_name]['Sig'].push(signal);
+            existing_signal_count++;
         }
 
         return option;
