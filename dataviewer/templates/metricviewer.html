@@ -155,7 +155,7 @@
                     <option value="vertical">Vert</option>
                     <option value="horizontal" selected>Hori</option>
                 </select>
-                <span id="panel1Label" style="margin-left: 5px; font-weight: bold;">Panel 1</span>
+                <span id="panel1Label" style="margin-left: 2px; font-weight: bold;">Panel 1</span>
                 <button id="initBtn" type="button" onclick="document.getElementById('fileInput').click();" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load</button>
                 <input type="file" id="fileInput" style="display: none;">
                 <!-- <input id="initData" type="text" style="width: 240px; margin-bottom: 7px;" name="initData" autocomplete="off" placeholder="Enter the metrics data file with full path"> -->
@@ -163,11 +163,11 @@
                 <input id="remote_h5" style="width: 120px; height:19px; " type="text" size="10" value="" placeholder="Enter the remote h5 location">
                 <button type="button" onclick="LoadRemoteH5()" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 4px">LoadRemote</button>
                 -->
-                <input id="template_name" style="width: 60px; height:19px; " type="text" size="10" value="" placeholder="Enter the template file to save/load">
-                <button type="button" onclick="ExportTemplate(true)" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Export</button>
-                <button type="button" onclick="ExportTemplate(false)" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Import</button>
-                <input id="filterMetricGroup" style="width: 120px; height:19px; " type="text" value="" placeholder="group name">
-                <input id="filterMetric" style="width: 120px; height:19px; " type="text" value="" placeholder="metric name"
+                <input id="template_name" style="width: 60px; height:18px; " type="text" size="10" value="" placeholder="Template file to save/load">
+                <button type="button" onclick="ExportTemplate(false)" style="height:21px; font-size: 100%; padding-left: 2px">Import</button>
+                <button type="button" onclick="ExportTemplate(true)" style="height:21px; font-size: 100%; padding-right: 2px">Export</button>
+                <input id="filterMetricGroup" style="width: 60px; height:18px; " type="text" value="" placeholder="group name">
+                <input id="filterMetric" style="width: 120px; height:18px; " type="text" value="" placeholder="metric name"
                     onclick="MetricSelectDivClick();" onkeydown="MetricSearchFunc(event)">
                 <div id="MetricSelectDiv"
                     style="display:none;border:1px solid #A9A9A9;width:800px;z-index:9;position:absolute;overflow-y :scroll;height:300px;background-color:white;"
@@ -183,11 +183,11 @@
                 <!--
                 <label for="zoom_start">Sample</label>
                 -->
-                <input id="zoom_start" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="Start"
+                <input id="zoom_start" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="Start"
                     onkeydown="ZoomChange(event)">
-                <input id="zoom_end" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="End"
+                <input id="zoom_end" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="End"
                     onkeydown="ZoomChange(event)">
-                <input id="zoom_duration" style="width: 60px; height:19px; " type="text" size="10" maxlength="30" value="" placeholder="Dur"
+                <input id="zoom_duration" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="Dur"
                     onkeydown="ZoomChange(event)">
 
                 <!--
@@ -197,11 +197,11 @@
                 <!--
                 <label for="sample_rate">Rate</label>
                 -->
-                <input id="sample_rate" style="width: 60px; height:19px; " type="text" size="10" value="100">
+                <input id="sample_rate" style="width: 60px; height:18px; " type="text" size="10" value="100">
                 <!--
                 <label for="zoom_start">Limit</label>
             -->
-                <input id="max_value" style="width: 60px; height:19px; padding-right:10px;" type="text" size="10"
+                <input id="max_value" style="width: 60px; height:18px; padding-right:10px;" type="text" size="10"
                     placeholder="set -1 to remove duration limit">
                 <!--
                 <label for="sync">Sync</label>
