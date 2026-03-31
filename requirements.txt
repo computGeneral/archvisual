@@ -5,3 +5,4 @@ numexpr==2.8.6
 numpy==1.24.4
 pandas==2.0.3
 nuitka==4.0.3
+tables=3.10.1
