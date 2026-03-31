@@ -137,6 +137,7 @@ def build_executable():
     # Prepare Nuitka command
     cmd = [
         sys.executable,
+        "-u",
         "-m", 
         "nuitka",
         "--standalone",
