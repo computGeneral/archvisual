@@ -18,22 +18,27 @@ def csv_to_hdf5(csv_path: str, output: str = None) -> str:
         base, _ = os.path.splitext(csv_path)
         h5_path = base + ".h5"
 
-    filters = tables.Filters(complevel=5, complib="blosc")
+    hdf = pd.HDFStore(h5_path, mode='w', complevel=4, complib='blosc')
+    hdf.put("data", df.T, data_columns=True)
+    hdf.put("config", pd.Series({"ClockGHz": 1.6, "SamplePeriod":100}))
+    hdf.close()
 
-    with tables.open_file(h5_path, mode="w", title=os.path.basename(csv_path)) as hf:
-        # Store column headers (sample indices) as a VLArray
-        cols = hf.create_vlarray("/", "columns", tables.VLStringAtom(), filters=filters)
-        for c in df.columns.astype(str):
-            cols.append(c.encode("utf-8"))
+    #filters = tables.Filters(complevel=5, complib="blosc")
 
-        for metric, row in df.iterrows():
-            data = row.values.astype("float64")
-            node_name = _safe_name(str(metric))
-            arr = hf.create_carray("/", node_name, obj=data, title=str(metric), filters=filters)
-            arr.attrs["metric"] = str(metric)
+    #with tables.open_file(h5_path, mode="w", title=os.path.basename(csv_path)) as hf:
+    #    # Store column headers (sample indices) as a VLArray
+    #    cols = hf.create_vlarray("/", "columns", tables.VLStringAtom(), filters=filters)
+    #    for c in df.columns.astype(str):
+    #        cols.append(c.encode("utf-8"))
 
-    print(f"Written: {h5_path}  ({len(df)} metrics × {len(df.columns)} samples)")
-    return h5_path
+    #    for metric, row in df.iterrows():
+    #        data = row.values.astype("float64")
+    #        node_name = _safe_name(str(metric))
+    #        arr = hf.create_carray("/", node_name, obj=data, title=str(metric), filters=filters)
+    #        arr.attrs["metric"] = str(metric)
+
+    #print(f"Written: {h5_path}  ({len(df)} metrics × {len(df.columns)} samples)")
+    #return h5_path
 
 
 def _safe_name(name: str) -> str:
