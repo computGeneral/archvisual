@@ -117,6 +117,71 @@ def api_show_upload(request):
     return HttpResponse(json.dumps(res), content_type='application/json')
 
 
+@require_POST
+def api_show_server_load(request):
+    req_data = json.loads(request.body.decode())
+    file_path = req_data.get('path', '').strip()
+    secondary = req_data.get('secondary', False)
+
+    if not file_path:
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'No file path provided'}),
+                            content_type='application/json')
+
+    if not os.path.isabs(file_path):
+        file_path = os.path.join(str(settings.BASE_DIR), 'dataviewer', 'static', 'data', file_path)
+
+    if not os.path.exists(file_path):
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'File not found: {file_path}'}),
+                            content_type='application/json')
+
+    if not (file_path.endswith('.h5') or file_path.endswith('.csv')):
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'File must be .h5 or .csv format'}),
+                            content_type='application/json')
+
+    try:
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path, index_col=0)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp:
+                hdf = pd.HDFStore(tmp.name, mode='w', complevel=4, complib='blosc')
+                hdf.put('data', df.T, data_columns=True)
+                hdf.put('config', pd.Series({'ClockGHz': 1.8, 'SamplePeriod': 100}))
+                hdf.close()
+                with pd.HDFStore(tmp.name, mode='r') as store:
+                    now_data = store['data']
+                    try:
+                        now_config = store['config']
+                    except KeyError:
+                        now_config = pd.DataFrame()
+        else:
+            with pd.HDFStore(file_path, mode='r') as store:
+                now_data = store['data']
+                try:
+                    now_config = store['config']
+                except KeyError:
+                    now_config = pd.DataFrame()
+    except Exception as e:
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'Error reading file: {str(e)}'}),
+                            content_type='application/json')
+
+    title = os.path.basename(file_path)
+    gl.clear(secondary=secondary)
+    gl.set_value('title', title, secondary=secondary)
+    gl.set_value('config', now_config, secondary=secondary)
+    gl.set_value('data', now_data, secondary=secondary)
+
+    res = {
+        'code': 0,
+        'data': {
+            'title': title,
+            'config': now_config.to_dict(),
+            'times': now_data.index.to_list(),
+            'names': now_data.columns.to_list(),
+            'signal': now_data.columns.to_list(),
+        }
+    }
+    return HttpResponse(json.dumps(res), content_type='application/json')
+
+
 # @require_GET
 # def api_show_init(request):
 #     res = {

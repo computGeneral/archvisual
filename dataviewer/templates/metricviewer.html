@@ -30,7 +30,7 @@
 
         .content {
             width: 100%;
-            height: calc(100% - 58px);
+            height: calc(100% - 48px);
             position: absolute;
             top: 38px;
             left: 0px;
@@ -129,7 +129,7 @@
 </head>
 
 <body style="height: 100%; width: 100%; margin: 0">
-    <div class="nav-bar-container" style="font-family: sans-serif; font-size: 80%; background-color: #333; position: absolute; top: 0; left: 0; width: 100%; height: 24px;">
+    <div class="nav-bar-container" style="font-family: sans-serif; font-size: 80%; background-color: #333; position: absolute; top: 0; left: 0; width: 100%; height: 14px; line-height: 14px;">
         <a id="path" href='admin' style="float: left; font-weight: bold; color: #fff;">ArchVisual</a>
         <span id="split" style="float: left; margin-left: 2px;">:</span>
         <!--
@@ -150,22 +150,38 @@
     <div class="header" style="background-color: #ddd; font-size: 80%">
         <div style="display: flex; justify-content: space-between">
             <div style="text-align: left; flex-grow: 0">
-                <button id="splitToggle" type="button" onclick="toggleSplitView()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">SplitView</button>
-                <select id="splitDirection" style="height:21px; font-size: 100%" onchange="changeSplitDirection()">
-                    <option value="vertical">Vert</option>
-                    <option value="horizontal" selected>Hori</option>
-                </select>
-                <span id="panel1Label" style="margin-left: 2px; font-weight: bold;">Panel 1</span>
-                <button id="initBtn" type="button" onclick="document.getElementById('fileInput').click();" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load</button>
-                <input type="file" id="fileInput" style="display: none;">
-                <!-- <input id="initData" type="text" style="width: 240px; margin-bottom: 7px;" name="initData" autocomplete="off" placeholder="Enter the metrics data file with full path"> -->
-                <!--
-                <input id="remote_h5" style="width: 120px; height:19px; " type="text" size="10" value="" placeholder="Enter the remote h5 location">
-                <button type="button" onclick="LoadRemoteH5()" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 4px">LoadRemote</button>
-                -->
-                <input id="template_name" style="width: 60px; height:18px; " type="text" size="10" value="" placeholder="Template file to save/load">
-                <button type="button" onclick="ExportTemplate(false)" style="height:21px; font-size: 100%; padding-left: 2px">Import</button>
-                <button type="button" onclick="ExportTemplate(true)" style="height:21px; font-size: 100%; padding-right: 2px">Export</button>
+                <span id="panel1Label" style="margin-right: 4px; font-weight: bold;">Panel 1:</span>
+                <span style="position: relative; display: inline-block;">
+                    <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
+                    <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
+                        <div id="splitOpt_single" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('single')">● Single</div>
+                        <div id="splitOpt_horizontal" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('horizontal')">Split Hori</div>
+                        <div id="splitOpt_vertical" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('vertical')">Split Vert</div>
+                    </div>
+                </span>
+                <span style="position: relative; display: inline-block;">
+                    <button id="initBtn" type="button" onclick="toggleLoadMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load ▾</button>
+                    <input type="file" id="fileInput" style="display: none;">
+                    <div id="loadMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
+                        <div style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="loadLocal()">Local File</div>
+                        <div style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="showServerPathInput()">Server File</div>
+                    </div>
+                </span>
+                <span id="serverPathBox" style="display:none;">
+                    <input id="serverFilePath" style="width: 200px; height:18px;" type="text" placeholder="Server file path (.h5 or .csv)">
+                    <button type="button" onclick="loadServerFile()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Go</button>
+                    <button type="button" onclick="hideServerPathInput()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">✕</button>
+                </span>
+                <span style="position: relative; display: inline-block;">
+                    <button id="templateBtn" type="button" onclick="toggleTemplateMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Template ▾</button>
+                    <div id="templateMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%; padding:6px 8px;">
+                        <input id="template_name" style="width: 140px; height:18px; margin-bottom:4px;" type="text" size="10" value="" placeholder="Template name">
+                        <div style="display:flex; gap:4px;">
+                            <div style="flex:1; padding:4px 12px; cursor:pointer; text-align:center; border:1px solid #ccc; border-radius:2px;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="doTemplate('import')">Import</div>
+                            <div style="flex:1; padding:4px 12px; cursor:pointer; text-align:center; border:1px solid #ccc; border-radius:2px;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="doTemplate('export')">Export</div>
+                        </div>
+                    </div>
+                </span>
                 <input id="filterMetricGroup" style="width: 60px; height:18px; " type="text" value="" placeholder="group name">
                 <input id="filterMetric" style="width: 120px; height:18px; " type="text" value="" placeholder="metric name"
                     onclick="MetricSelectDivClick();" onkeydown="MetricSearchFunc(event)">
@@ -234,6 +250,9 @@
             </div>
         </div>
     </div>
+    <div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:9999; justify-content:center; align-items:center;">
+        <span style="background:#fff; padding:12px 24px; border-radius:6px; font-size:14px;">Loading...</span>
+    </div>
     <div class="footer">
         <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
     </div>
@@ -271,8 +290,33 @@
     var zoom_input_end2 = null;
     var zoom_output_dur2 = null;
 
-    // Toggle split view
-    function toggleSplitView() {
+    function toggleSplitMenu() {
+        var menu = document.getElementById('splitMenu');
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('splitMenu');
+        var btn = document.getElementById('splitToggle');
+        if (menu && !menu.contains(e.target) && e.target !== btn) {
+            menu.style.display = 'none';
+        }
+    });
+
+    function updateSplitMenuIndicator() {
+        var mode = isSplitView ? splitDirection : 'single';
+        ['single', 'horizontal', 'vertical'].forEach(function(opt) {
+            var el = document.getElementById('splitOpt_' + opt);
+            if (el) {
+                var label = opt === 'single' ? 'Single' : opt === 'horizontal' ? 'Split Hori' : 'Split Vert';
+                el.textContent = (mode === opt ? '● ' : '') + label;
+            }
+        });
+    }
+
+    function setSplitMode(mode) {
+        document.getElementById('splitMenu').style.display = 'none';
+
         // Save current zoom state before toggling
         var savedZoom1 = null;
         if (myChart) {
@@ -292,72 +336,48 @@
             }
         }
 
-        isSplitView = !isSplitView;
         var panel2 = document.getElementById('panel2');
         var splitContainer = document.getElementById('splitContainer');
         var panel1Header = document.getElementById('panel1Header');
         var panel2Header = document.getElementById('panel2Header');
-        var splitToggle = document.getElementById('splitToggle');
 
-        if (isSplitView) {
-            panel2.classList.remove('hidden');
-            panel1Header.classList.remove('hidden');
-            panel2Header.classList.remove('hidden');
-            splitToggle.textContent = 'SingleView';
-            changeSplitDirection();
-
-            // Resize chart and restore zoom state for panel 1
-            setTimeout(function() {
-                if (myChart) {
-                    myChart.resize();
-                    if (savedZoom1) {
-                        myChart.dispatchAction({
-                            type: 'dataZoom',
-                            start: savedZoom1.start,
-                            end: savedZoom1.end,
-                            startValue: savedZoom1.startValue,
-                            endValue: savedZoom1.endValue
-                        });
-                    }
-                }
-            }, 100);
-        } else {
+        if (mode === 'single') {
+            isSplitView = false;
             panel2.classList.add('hidden');
             panel1Header.classList.add('hidden');
             panel2Header.classList.add('hidden');
             splitContainer.classList.remove('horizontal');
-            splitToggle.textContent = 'SplitView';
             activePanel = 1;
             setActivePanel(1);
-
-            // Resize chart and restore zoom state for panel 1
-            setTimeout(function() {
-                if (myChart) {
-                    myChart.resize();
-                    if (savedZoom1) {
-                        myChart.dispatchAction({
-                            type: 'dataZoom',
-                            start: savedZoom1.start,
-                            end: savedZoom1.end,
-                            startValue: savedZoom1.startValue,
-                            endValue: savedZoom1.endValue
-                        });
-                    }
-                }
-            }, 100);
-        }
-    }
-
-    // Change split direction
-    function changeSplitDirection() {
-        if (!isSplitView) return;
-        splitDirection = document.getElementById('splitDirection').value;
-        var splitContainer = document.getElementById('splitContainer');
-        if (splitDirection === 'horizontal') {
-            splitContainer.classList.add('horizontal');
         } else {
-            splitContainer.classList.remove('horizontal');
+            isSplitView = true;
+            splitDirection = mode;
+            panel2.classList.remove('hidden');
+            panel1Header.classList.remove('hidden');
+            panel2Header.classList.remove('hidden');
+            if (mode === 'horizontal') {
+                splitContainer.classList.add('horizontal');
+            } else {
+                splitContainer.classList.remove('horizontal');
+            }
         }
+
+        updateSplitMenuIndicator();
+
+        setTimeout(function() {
+            if (myChart) {
+                myChart.resize();
+                if (savedZoom1) {
+                    myChart.dispatchAction({
+                        type: 'dataZoom',
+                        start: savedZoom1.start,
+                        end: savedZoom1.end,
+                        startValue: savedZoom1.startValue,
+                        endValue: savedZoom1.endValue
+                    });
+                }
+            }
+        }, 100);
     }
 
     // Set active panel for operations
@@ -1100,6 +1120,29 @@
         }
     }
 
+    function toggleTemplateMenu() {
+        var menu = document.getElementById('templateMenu');
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('templateMenu');
+        var btn = document.getElementById('templateBtn');
+        if (menu && !menu.contains(e.target) && e.target !== btn) {
+            menu.style.display = 'none';
+        }
+    });
+
+    function doTemplate(action) {
+        var name = document.getElementById('template_name').value.trim();
+        if (!name) {
+            alert('Please enter a template name');
+            return;
+        }
+        document.getElementById('templateMenu').style.display = 'none';
+        ExportTemplate(action === 'export');
+    }
+
     function ExportTemplate(isExport) {
         var template_name = document.getElementById('template_name').value;
         var isSecondary = activePanel === 2;
@@ -1645,64 +1688,72 @@
         });
     });
 
+    function toggleLoadMenu() {
+        var menu = document.getElementById('loadMenu');
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('loadMenu');
+        var btn = document.getElementById('initBtn');
+        if (menu && !menu.contains(e.target) && e.target !== btn) {
+            menu.style.display = 'none';
+        }
+    });
+
+    function loadLocal() {
+        document.getElementById('loadMenu').style.display = 'none';
+        document.getElementById('fileInput').click();
+    }
+
+    function showServerPathInput() {
+        document.getElementById('loadMenu').style.display = 'none';
+        document.getElementById('serverPathBox').style.display = 'inline';
+        document.getElementById('serverFilePath').focus();
+    }
+
+    function hideServerPathInput() {
+        document.getElementById('serverPathBox').style.display = 'none';
+        document.getElementById('serverFilePath').value = '';
+    }
+
+    function loadServerFile() {
+        var filePath = document.getElementById('serverFilePath').value.trim();
+        if (!filePath) {
+            alert('Please enter a server file path');
+            return;
+        }
+        showLoading();
+        $.ajax({
+            url: '/api/show/server_load',
+            type: 'POST',
+            contentType: 'application/json;charset=utf-8',
+            data: JSON.stringify({
+                path: filePath,
+                secondary: activePanel === 2
+            }),
+            success: function (res) {
+                hideLoading();
+                if (res.code === 0) {
+                    ProcessH5(res, activePanel);
+                    hideServerPathInput();
+                } else {
+                    alert(res.msg || 'Failed to load server file');
+                }
+            },
+            error: function (xhr, status, error) {
+                hideLoading();
+                alert('Server load failed: ' + (xhr.responseText || error));
+            }
+        });
+    }
+
     function showLoading() {
         document.getElementById('loadingOverlay').style.display = 'flex';
     }
-    
+
     function hideLoading() {
         document.getElementById('loadingOverlay').style.display = 'none';
-    }
-
-    function LoadRemoteH5() {
-        var remote_h5_url = document.getElementById('remote_h5').value.trim();
-    
-        if (!remote_h5_url) {
-            alert('Please input a remote HDF5 file path');
-            return;
-        }
-    
-        showLoading(); // 假设 showLoading 是一个显示加载指示器的函数
-
-        // 从远程 URL 获取文件
-        fetch(remote_h5_url)
-            .then(response => {
-                if (response.ok) return response.blob();
-                throw new Error('Network response was not ok.');
-            })
-            .then(blob => {
-                // 假设我们知道文件名和类型
-                const filename = 'downloaded_file.h5';
-                const mimeType = 'application/octet-stream';
-
-                // 创建一个新的 File 对象
-                const file = new File([blob], filename, { type: mimeType });
-
-                // 准备 FormData 以便上传
-                var formData = new FormData();
-                formData.append('file', file);
-
-                // 使用 AJAX 上传文件
-                $.ajax({
-                    url: '/api/show/upload',
-                    type: 'POST',
-                    data: formData,
-                    processData: false,
-                    contentType: false,
-                    success: function (res) {
-                        hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
-                        ProcessH5(res); // 假设 ProcessH5 是一个处理文件的函数
-                    },
-                    error: function (xhr, status, error) {
-                        hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
-                        alert('Upload failed: ' + error);
-                    }
-                });
-            })
-            .catch(error => {
-                hideLoading(); // 假设 hideLoading 是一个隐藏加载指示器的函数
-                console.error('There has been a problem with your fetch operation:', error);
-                alert('Failed to load the file: ' + error.message);
-            });
     }
 
 

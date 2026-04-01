@@ -22,6 +22,8 @@
 
         .nav-bar {
             height: 14px;
+            line-height: 14px;
+            overflow: hidden;
             background-color: #333;
             font-family: sans-serif;
             font-size: 80%;
@@ -141,12 +143,15 @@
         </div>
         <div class="header">
             <div style="display: flex; align-items: center; gap: 5px;">
-                <button id="splitToggle" type="button" onclick="toggleSplitView()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">SplitView</button>
-                <select id="splitDirection" style="height:21px; font-size: 100%" onchange="changeSplitDirection()">
-                    <option value="vertical">Vert</option>
-                    <option value="horizontal" selected>Hori</option>
-                </select>
-                <span id="panel1Label" style="font-weight: bold;">Panel 1</span>
+                <span id="panel1Label" style="margin-right: 4px; font-weight: bold;">Panel 1:</span>
+                <span style="position: relative; display: inline-block;">
+                    <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
+                    <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
+                        <div id="splitOpt_single" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('single')">● Single</div>
+                        <div id="splitOpt_horizontal" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('horizontal')">Split Hori</div>
+                        <div id="splitOpt_vertical" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('vertical')">Split Vert</div>
+                    </div>
+                </span>
             </div>
         </div>
         <div class="content">
@@ -187,36 +192,54 @@
     var splitDirection = 'horizontal';
     var activePanel = 1;
 
-    // Toggle split view
-    function toggleSplitView() {
-        isSplitView = !isSplitView;
-        var panel2 = document.getElementById('panel2');
-        var splitContainer = document.getElementById('splitContainer');
-        var splitToggle = document.getElementById('splitToggle');
-
-        if (isSplitView) {
-            panel2.classList.remove('hidden');
-            splitToggle.textContent = 'SingleView';
-            changeSplitDirection();
-        } else {
-            panel2.classList.add('hidden');
-            splitContainer.classList.remove('horizontal');
-            splitToggle.textContent = 'SplitView';
-            activePanel = 1;
-            setActivePanel(1);
-        }
+    function toggleSplitMenu() {
+        var menu = document.getElementById('splitMenu');
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
     }
 
-    // Change split direction
-    function changeSplitDirection() {
-        if (!isSplitView) return;
-        splitDirection = document.getElementById('splitDirection').value;
-        var splitContainer = document.getElementById('splitContainer');
-        if (splitDirection === 'horizontal') {
-            splitContainer.classList.add('horizontal');
-        } else {
-            splitContainer.classList.remove('horizontal');
+    document.addEventListener('click', function(e) {
+        var menu = document.getElementById('splitMenu');
+        var btn = document.getElementById('splitToggle');
+        if (menu && !menu.contains(e.target) && e.target !== btn) {
+            menu.style.display = 'none';
         }
+    });
+
+    function updateSplitMenuIndicator() {
+        var mode = isSplitView ? splitDirection : 'single';
+        ['single', 'horizontal', 'vertical'].forEach(function(opt) {
+            var el = document.getElementById('splitOpt_' + opt);
+            if (el) {
+                var label = opt === 'single' ? 'Single' : opt === 'horizontal' ? 'Split Hori' : 'Split Vert';
+                el.textContent = (mode === opt ? '● ' : '') + label;
+            }
+        });
+    }
+
+    function setSplitMode(mode) {
+        document.getElementById('splitMenu').style.display = 'none';
+
+        var panel2 = document.getElementById('panel2');
+        var splitContainer = document.getElementById('splitContainer');
+
+        if (mode === 'single') {
+            isSplitView = false;
+            panel2.classList.add('hidden');
+            splitContainer.classList.remove('horizontal');
+            activePanel = 1;
+            setActivePanel(1);
+        } else {
+            isSplitView = true;
+            splitDirection = mode;
+            panel2.classList.remove('hidden');
+            if (mode === 'horizontal') {
+                splitContainer.classList.add('horizontal');
+            } else {
+                splitContainer.classList.remove('horizontal');
+            }
+        }
+
+        updateSplitMenuIndicator();
     }
 
     // Set active panel for operations
@@ -227,11 +250,11 @@
         var panel2 = document.getElementById('panel2');
 
         if (panel === 2) {
-            panel1Label.textContent = 'Panel 2';
+            panel1Label.textContent = 'Panel 2:';
             panel1.classList.remove('active');
             panel2.classList.add('active');
         } else {
-            panel1Label.textContent = 'Panel 1';
+            panel1Label.textContent = 'Panel 1:';
             panel1.classList.add('active');
             panel2.classList.remove('active');
         }

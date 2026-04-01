@@ -44,6 +44,7 @@ urlpatterns = [
     path('summaryviewer', dataviewer.views.page_summaryviewer),
     path('crossviewer', dataviewer.views.page_crossviewer),
     path('api/show/upload', dataviewer.views.api_show_upload),
+    path('api/show/server_load', dataviewer.views.api_show_server_load),
     # path('api/show/init', dataviewer.views.api_show_init),
     path('api/show/query', dataviewer.views.api_show_query),
     path('api/temp/import', dataviewer.views.api_temp_import),
