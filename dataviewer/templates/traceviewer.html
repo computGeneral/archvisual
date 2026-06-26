@@ -36,17 +36,6 @@
             display: none !important;
         }
 
-        .header {
-            width: 100%;
-            height: 24px;
-            background-color: #ddd;
-            font-family: sans-serif;
-            font-size: 80%;
-            flex-shrink: 0;
-            position: relative;
-            z-index: 10;
-        }
-
         .content {
             flex: 1;
             width: 100%;
@@ -141,25 +130,13 @@
             <span id="split" style="float: left; margin-left: 2px;">|</span>
             <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">CrossViewer</a>
         </div>
-        <div class="header">
-            <div style="display: flex; align-items: center; gap: 5px;">
-                <span style="position: relative; display: inline-block;">
-                    <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
-                    <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
-                        <div id="splitOpt_single" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('single')">● Single</div>
-                        <div id="splitOpt_horizontal" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('horizontal')">Split Hori</div>
-                        <div id="splitOpt_vertical" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('vertical')">Split Vert</div>
-                    </div>
-                </span>
-            </div>
-        </div>
         <div class="content">
             <div id="splitContainer" class="split-container">
                 <div id="panel1" class="split-panel" onclick="handlePanelClick(event, 1)">
-                    <iframe id="catapult_frame1" src="/static/catapult_trace_viewer.html?v=20260626l"></iframe>
+                    <iframe id="catapult_frame1" src="/static/catapult_trace_viewer.html?v=20260626m"></iframe>
                 </div>
                 <div id="panel2" class="split-panel hidden" onclick="handlePanelClick(event, 2)">
-                    <iframe id="catapult_frame2" src="/static/catapult_trace_viewer.html?v=20260626l"></iframe>
+                    <iframe id="catapult_frame2" src="/static/catapult_trace_viewer.html?v=20260626m"></iframe>
                 </div>
             </div>
         </div>
@@ -191,33 +168,7 @@
     var splitDirection = 'horizontal';
     var activePanel = 1;
 
-    function toggleSplitMenu() {
-        var menu = document.getElementById('splitMenu');
-        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-    }
-
-    document.addEventListener('click', function(e) {
-        var menu = document.getElementById('splitMenu');
-        var btn = document.getElementById('splitToggle');
-        if (menu && !menu.contains(e.target) && e.target !== btn) {
-            menu.style.display = 'none';
-        }
-    });
-
-    function updateSplitMenuIndicator() {
-        var mode = isSplitView ? splitDirection : 'single';
-        ['single', 'horizontal', 'vertical'].forEach(function(opt) {
-            var el = document.getElementById('splitOpt_' + opt);
-            if (el) {
-                var label = opt === 'single' ? 'Single' : opt === 'horizontal' ? 'Split Hori' : 'Split Vert';
-                el.textContent = (mode === opt ? '● ' : '') + label;
-            }
-        });
-    }
-
     function setSplitMode(mode) {
-        document.getElementById('splitMenu').style.display = 'none';
-
         var panel2 = document.getElementById('panel2');
         var splitContainer = document.getElementById('splitContainer');
 
@@ -238,7 +189,7 @@
             }
         }
 
-        updateSplitMenuIndicator();
+        // Split state indicator now managed by catapult via SPLIT_ACK
     }
 
     // Set active panel for operations
@@ -298,6 +249,10 @@
             }).catch(function(err) {
                 iframeWindow.postMessage({ code: 1, msg: 'Network error: ' + err, _msgId: msgId }, '*');
             });
+        } else if (e.data.type === 'SET_SPLIT') {
+            setSplitMode(e.data.mode);
+            var ackMode = isSplitView ? splitDirection : 'single';
+            iframeWindow.postMessage({ type: 'SPLIT_ACK', mode: ackMode }, '*');
         } else if (e.data.type === 'GET_FILE') {
             fetch('/api/show/server_file', {
                 method: 'POST',

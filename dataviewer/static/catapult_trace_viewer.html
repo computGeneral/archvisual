@@ -2764,6 +2764,16 @@ x-timeline-view-buttons {
   align-items: center;
 }
 
+#view-wrapper {
+  position: relative;
+  display: inline-block;
+  overflow: visible;
+}
+
+#view-dropdown > div:hover {
+  background: #e0e0e0;
+}
+
 #load-wrapper {
   position: relative;
   display: inline-block;
@@ -2799,6 +2809,14 @@ x-timeline-view-buttons {
 </style><template id="profiling-view-template">
   <tr-ui-b-info-bar-group></tr-ui-b-info-bar-group>
   <x-timeline-view-buttons>
+    <span id="view-wrapper" style="position:relative;display:inline-block;overflow:visible;">
+      <button id="view-button">View ▾</button>
+      <div id="view-dropdown" style="display:none;position:fixed;background:#fff;border:1px solid #aaa;box-shadow:2px 2px 6px rgba(0,0,0,0.2);z-index:9998;white-space:nowrap;font-size:12px;min-width:120px;">
+        <div id="view-opt-single" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('single')">● Single</div>
+        <div id="view-opt-horizontal" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('horizontal')">Split Hori</div>
+        <div id="view-opt-vertical" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('vertical')">Split Vert</div>
+      </div>
+    </span>
     <button id="record-button">Record</button>
     <button id="save-button">Save</button>
     <span id="load-wrapper">
@@ -3978,7 +3996,7 @@ x-timeline-view-buttons {
   </template>
 </dom-module><style>
 html,body{height:100%}body{flex-direction:column;display:flex;margin:0;padding:0}body>x-profiling-view{flex:1 1 auto;min-height:0}body>x-profiling-view>x-timeline-view:focus{outline:0}
-</style><script src="./js/catapult_trace_viewer.js?v=20260626l"></script>
+</style><script src="./js/catapult_trace_viewer.js?v=20260626m"></script>
 </head>
   <body>
     <div id="server-browser-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.35); z-index:1000; justify-content:center; align-items:flex-start; padding-top:70px; font-family:sans-serif;">
