@@ -24,6 +24,7 @@ from dataviewer import gl
 from django.conf import settings
 from django.shortcuts import render, HttpResponse
 from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.csrf import csrf_exempt
 
 
 def page_admin(request):
@@ -117,6 +118,7 @@ def api_show_upload(request):
     return HttpResponse(json.dumps(res), content_type='application/json')
 
 
+@csrf_exempt
 @require_POST
 def api_show_server_load(request):
     req_data = json.loads(request.body.decode())
@@ -180,6 +182,86 @@ def api_show_server_load(request):
         }
     }
     return HttpResponse(json.dumps(res), content_type='application/json')
+
+
+@csrf_exempt
+@require_POST
+def api_show_server_list(request):
+    req_data = json.loads(request.body.decode())
+    requested_path = req_data.get('path', '').strip()
+
+    if requested_path:
+        requested_path = os.path.abspath(requested_path)
+    else:
+        requested_path = os.path.abspath(str(settings.BASE_DIR))
+
+    if not os.path.exists(requested_path):
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'Path not found: {requested_path}'}),
+                            content_type='application/json')
+
+    if os.path.isfile(requested_path):
+        requested_path = os.path.dirname(requested_path)
+
+    try:
+        entries = []
+        for name in sorted(os.listdir(requested_path), key=lambda s: s.lower()):
+            full_path = os.path.join(requested_path, name)
+            if os.path.isdir(full_path):
+                entries.append({'name': name, 'path': full_path, 'type': 'dir'})
+            else:
+                selectable = name.endswith('.h5') or name.endswith('.csv')
+                entries.append({'name': name, 'path': full_path, 'type': 'file', 'selectable': selectable})
+    except Exception as e:
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'Unable to read directory: {str(e)}'}),
+                            content_type='application/json')
+
+    parent = None
+    if requested_path != '/':
+        parent = os.path.dirname(requested_path)
+
+    return HttpResponse(json.dumps({'code': 0, 'data': {'path': requested_path, 'parent': parent, 'entries': entries}}),
+                        content_type='application/json')
+
+
+@csrf_exempt
+@require_POST
+def api_show_server_file(request):
+    """Serve raw file content from the server filesystem for trace viewers."""
+    req_data = json.loads(request.body.decode())
+    file_path = req_data.get('path', '').strip()
+
+    if not file_path:
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'No file path provided'}),
+                            content_type='application/json')
+
+    file_path = os.path.abspath(file_path)
+
+    if not os.path.exists(file_path):
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'File not found: {file_path}'}),
+                            content_type='application/json')
+
+    if os.path.isdir(file_path):
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'Path is a directory, not a file'}),
+                            content_type='application/json')
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except UnicodeDecodeError:
+        with open(file_path, 'rb') as f:
+            content = f.read().decode('latin-1')
+    except Exception as e:
+        return HttpResponse(json.dumps({'code': 1, 'msg': f'Error reading file: {str(e)}'}),
+                            content_type='application/json')
+
+    return HttpResponse(json.dumps({
+        'code': 0,
+        'data': {
+            'name': os.path.basename(file_path),
+            'path': file_path,
+            'content': content,
+        }
+    }), content_type='application/json')
 
 
 # @require_GET

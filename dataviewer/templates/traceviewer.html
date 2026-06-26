@@ -143,7 +143,6 @@
         </div>
         <div class="header">
             <div style="display: flex; align-items: center; gap: 5px;">
-                <span id="panel1Label" style="margin-right: 4px; font-weight: bold;">Panel 1:</span>
                 <span style="position: relative; display: inline-block;">
                     <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
                     <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
@@ -157,10 +156,10 @@
         <div class="content">
             <div id="splitContainer" class="split-container">
                 <div id="panel1" class="split-panel" onclick="handlePanelClick(event, 1)">
-                    <iframe id="catapult_frame1" src="/static/catapult_trace_viewer.html"></iframe>
+                    <iframe id="catapult_frame1" src="/static/catapult_trace_viewer.html?v=20260626l"></iframe>
                 </div>
                 <div id="panel2" class="split-panel hidden" onclick="handlePanelClick(event, 2)">
-                    <iframe id="catapult_frame2" src="/static/catapult_trace_viewer.html"></iframe>
+                    <iframe id="catapult_frame2" src="/static/catapult_trace_viewer.html?v=20260626l"></iframe>
                 </div>
             </div>
         </div>
@@ -245,16 +244,13 @@
     // Set active panel for operations
     function setActivePanel(panel) {
         activePanel = panel;
-        var panel1Label = document.getElementById('panel1Label');
         var panel1 = document.getElementById('panel1');
         var panel2 = document.getElementById('panel2');
 
         if (panel === 2) {
-            panel1Label.textContent = 'Panel 2:';
             panel1.classList.remove('active');
             panel2.classList.add('active');
         } else {
-            panel1Label.textContent = 'Panel 1:';
             panel1.classList.add('active');
             panel2.classList.remove('active');
         }
@@ -273,6 +269,55 @@
         }
         return window.frames[0] || document.getElementById('catapult_frame1').contentWindow;
     }
+
+    // ---- Server API message handler for catapult iframes ----
+    // Catapult's Polymer environment blocks network requests, so we use
+    // postMessage to route API calls through the parent window.
+    window.addEventListener('message', function(e) {
+        console.log('[parent] got postMessage:', e.data && e.data.type, 'from:', e.source === window.frames[0] ? 'frame1' : e.source === (window.frames[1] || null) ? 'frame2' : 'unknown');
+        if (!e.data || !e.data.type) return;
+        var msgId = e.data._msgId;
+        var iframeWindow = e.source;
+
+        if (e.data.type === 'LIST_DIR') {
+            console.log('[parent] LIST_DIR path:', e.data.path);
+            fetch('/api/show/server_list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json;charset=utf-8' },
+                body: JSON.stringify({ path: e.data.path || '' })
+            }).then(function(r) { return r.json(); }).then(function(res) {
+            console.log('[parent] LIST_DIR response, posting back to iframe');
+                iframeWindow.postMessage({
+                    code: res.code,
+                    msg: res.msg,
+                    path: res.data ? res.data.path : null,
+                    parent: res.data ? res.data.parent : null,
+                    entries: res.data ? res.data.entries : [],
+                    _msgId: msgId
+                }, '*');
+            }).catch(function(err) {
+                iframeWindow.postMessage({ code: 1, msg: 'Network error: ' + err, _msgId: msgId }, '*');
+            });
+        } else if (e.data.type === 'GET_FILE') {
+            fetch('/api/show/server_file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json;charset=utf-8' },
+                body: JSON.stringify({ path: e.data.path })
+            }).then(function(r) { return r.json(); }).then(function(res) {
+                iframeWindow.postMessage({
+                    code: res.code,
+                    msg: res.msg,
+                    name: res.data ? res.data.name : null,
+                    content: res.data ? res.data.content : null,
+                    _msgId: msgId
+                }, '*');
+            }).catch(function(err) {
+                iframeWindow.postMessage({ code: 1, msg: 'Network error: ' + err, _msgId: msgId }, '*');
+            });
+        }
+    });
+
+    // ---- BroadcastChannel sync ----
 
     const bc = new BroadcastChannel('klxarch');
     window.bc = bc;

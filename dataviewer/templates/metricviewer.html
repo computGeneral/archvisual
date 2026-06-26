@@ -150,7 +150,6 @@
     <div class="header" style="background-color: #ddd; font-size: 80%">
         <div style="display: flex; justify-content: space-between">
             <div style="text-align: left; flex-grow: 0">
-                <span id="panel1Label" style="margin-right: 4px; font-weight: bold;">Panel 1:</span>
                 <span style="position: relative; display: inline-block;">
                     <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
                     <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
@@ -167,11 +166,28 @@
                         <div style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="showServerPathInput()">Server File</div>
                     </div>
                 </span>
-                <span id="serverPathBox" style="display:none;">
-                    <input id="serverFilePath" style="width: 200px; height:18px;" type="text" placeholder="Server file path (.h5 or .csv)">
-                    <button type="button" onclick="loadServerFile()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Go</button>
-                    <button type="button" onclick="hideServerPathInput()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">✕</button>
-                </span>
+                <div id="serverBrowserOverlay" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.35); z-index:200; display:flex; justify-content:center; align-items:flex-start; padding-top:70px;">
+                    <div style="width:520px; max-height:80%; background:#fff; border:1px solid #aaa; border-radius:6px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.25);">
+                        <div style="background:#333; color:#fff; padding:5px 12px; display:flex; justify-content:space-between; align-items:center; font-size:90%;">
+                            <span>Server file browser</span>
+                            <button type="button" onclick="hideServerBrowser()" style="background:transparent; border:none; color:#fff; font-size:14px; cursor:pointer;">✕</button>
+                        </div>
+                        <div style="padding:6px; display:flex; flex-direction:column; gap:4px; font-size:90%;">
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" onclick="serverBrowserUp()" style="flex:0 0 auto; height:26px;">Up</button>
+                                <button type="button" onclick="serverBrowserRefresh()" style="flex:0 0 auto; height:26px;">Refresh</button>
+                                <input id="serverBrowserPath" type="text" onkeydown="serverBrowserPathKey(event)" style="flex:1; height:26px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid #ccc; padding:4px 6px; background:#fafafa;">
+                            </div>
+                            <div id="serverBrowserMessage" style="color:#a00; font-size:85%; min-height:18px;"></div>
+                        </div>
+                        <div id="serverBrowserList" style="flex:1; overflow:auto; border-top:1px solid #ddd; background:#fff; padding:6px; font-size:90%;"></div>
+                        <div style="padding:6px; display:flex; gap:8px; align-items:center; border-top:1px solid #ddd;">
+                            <input id="serverBrowserSelectedPath" type="text" readonly placeholder="Select a .h5 or .csv file" style="flex:1; height:26px; padding:4px 6px; border:1px solid #ccc; background:#f8f8f8;">
+                            <button type="button" onclick="loadServerFile()" style="height:26px;">Load</button>
+                            <button type="button" onclick="hideServerBrowser()" style="height:26px;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
                 <span style="position: relative; display: inline-block;">
                     <button id="templateBtn" type="button" onclick="toggleTemplateMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Template ▾</button>
                     <div id="templateMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%; padding:6px 8px;">
@@ -383,16 +399,13 @@
     // Set active panel for operations
     function setActivePanel(panel) {
         activePanel = panel;
-        var panel1Label = document.getElementById('panel1Label');
         var panel1 = document.getElementById('panel1');
         var panel2 = document.getElementById('panel2');
 
         if (panel === 2) {
-            panel1Label.textContent = 'Panel 2:';
             panel1.classList.remove('active');
             panel2.classList.add('active');
         } else {
-            panel1Label.textContent = 'Panel 1:';
             panel1.classList.add('active');
             panel2.classList.remove('active');
         }
@@ -1708,19 +1721,131 @@
 
     function showServerPathInput() {
         document.getElementById('loadMenu').style.display = 'none';
-        document.getElementById('serverPathBox').style.display = 'inline';
-        document.getElementById('serverFilePath').focus();
+        showServerBrowser();
     }
 
-    function hideServerPathInput() {
-        document.getElementById('serverPathBox').style.display = 'none';
-        document.getElementById('serverFilePath').value = '';
+    function showServerBrowser() {
+        document.getElementById('loadMenu').style.display = 'none';
+        document.getElementById('serverBrowserOverlay').classList.remove('hidden');
+        document.getElementById('serverBrowserMessage').innerText = '';
+        document.getElementById('serverBrowserSelectedPath').value = '';
+        serverBrowserLoad('');
+    }
+
+    function hideServerBrowser() {
+        document.getElementById('serverBrowserOverlay').classList.add('hidden');
+        document.getElementById('serverBrowserMessage').innerText = '';
+        document.getElementById('serverBrowserList').innerHTML = '';
+        serverBrowserCurrentPath = null;
+        serverBrowserSelected = null;
+    }
+
+    var serverBrowserCurrentPath = null;
+    var serverBrowserSelected = null;
+
+    function serverBrowserLoad(path) {
+        showLoading();
+        $.ajax({
+            url: '/api/show/server_list',
+            type: 'POST',
+            contentType: 'application/json;charset=utf-8',
+            data: JSON.stringify({ path: path }),
+            success: function (res) {
+                hideLoading();
+                if (res.code === 0) {
+                    serverBrowserCurrentPath = res.data.path;
+                    document.getElementById('serverBrowserPath').value = res.data.path;
+                    var list = document.getElementById('serverBrowserList');
+                    list.innerHTML = '';
+                    if (res.data.parent) {
+                        var row = document.createElement('div');
+                        row.style.padding = '6px 8px';
+                        row.style.borderBottom = '1px solid #eee';
+                        row.style.cursor = 'pointer';
+                        row.style.fontWeight = 'bold';
+                        row.innerText = '.. (parent directory)';
+                        row.onclick = function () { serverBrowserLoad(res.data.parent); };
+                        list.appendChild(row);
+                    }
+                    res.data.entries.forEach(function (item) {
+                        var row = document.createElement('div');
+                        row.style.padding = '6px 8px';
+                        row.style.borderBottom = '1px solid #eee';
+                        row.style.display = 'flex';
+                        row.style.justifyContent = 'space-between';
+                        row.style.alignItems = 'center';
+                        row.style.cursor = 'pointer';
+                        var label = document.createElement('span');
+                        label.innerText = item.type === 'dir' ? '📁 ' + item.name : '📄 ' + item.name;
+                        row.appendChild(label);
+                        var info = document.createElement('span');
+                        info.style.fontSize = '80%';
+                        info.style.color = item.type === 'dir' ? '#666' : (item.selectable ? '#007bff' : '#999');
+                        info.innerText = item.type === 'dir' ? 'Directory' : (item.selectable ? 'Select' : 'Unsupported');
+                        row.appendChild(info);
+                        if (item.type === 'dir') {
+                            row.onclick = function () { serverBrowserLoad(item.path); };
+                        } else if (item.selectable) {
+                            row.onclick = function () {
+                                serverBrowserSelected = item.path;
+                                document.getElementById('serverBrowserSelectedPath').value = item.path;
+                                document.getElementById('serverBrowserMessage').innerText = 'Ready to load ' + item.name;
+                            };
+                        } else {
+                            row.style.cursor = 'default';
+                        }
+                        list.appendChild(row);
+                    });
+                } else {
+                    document.getElementById('serverBrowserMessage').innerText = res.msg || 'Unable to load server directory';
+                }
+            },
+            error: function (xhr, status, error) {
+                hideLoading();
+                document.getElementById('serverBrowserMessage').innerText = 'Server browse failed: ' + (xhr.responseText || error);
+            }
+        });
+    }
+
+    function serverBrowserUp() {
+        if (!serverBrowserCurrentPath) {
+            return;
+        }
+        showLoading();
+        $.ajax({
+            url: '/api/show/server_list',
+            type: 'POST',
+            contentType: 'application/json;charset=utf-8',
+            data: JSON.stringify({ path: serverBrowserCurrentPath }),
+            success: function (res) {
+                hideLoading();
+                if (res.code === 0 && res.data.parent) {
+                    serverBrowserLoad(res.data.parent);
+                }
+            },
+            error: function (xhr, status, error) {
+                hideLoading();
+                document.getElementById('serverBrowserMessage').innerText = 'Unable to navigate up: ' + (xhr.responseText || error);
+            }
+        });
+    }
+
+    function serverBrowserRefresh() {
+        if (serverBrowserCurrentPath) {
+            serverBrowserLoad(serverBrowserCurrentPath);
+        }
+    }
+
+    function serverBrowserPathKey(event) {
+        if (event.keyCode === 13) {
+            serverBrowserLoad(document.getElementById('serverBrowserPath').value);
+        }
     }
 
     function loadServerFile() {
-        var filePath = document.getElementById('serverFilePath').value.trim();
+        var filePath = document.getElementById('serverBrowserSelectedPath').value.trim();
         if (!filePath) {
-            alert('Please enter a server file path');
+            alert('Please select a server file to load');
             return;
         }
         showLoading();
@@ -1736,7 +1861,7 @@
                 hideLoading();
                 if (res.code === 0) {
                     ProcessH5(res, activePanel);
-                    hideServerPathInput();
+                    hideServerBrowser();
                 } else {
                     alert(res.msg || 'Failed to load server file');
                 }
