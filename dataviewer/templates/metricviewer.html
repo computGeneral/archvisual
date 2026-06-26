@@ -1322,11 +1322,18 @@
             window['zoom_end_' + panelNum] = zoom.end;
             window['zoom_start_val_' + panelNum] = timeLine[zoom.startValue];
             window['zoom_end_val_' + panelNum] = timeLine[zoom.endValue];
+            // Keep legacy unsuffixed vars in sync (used by SyncToTraceView)
+            window.zoom_start_val = timeLine[zoom.startValue];
+            window.zoom_end_val = timeLine[zoom.endValue];
             // Only update zoom input fields if this is the active panel
             if (targetZoomStart && panelNum === activePanel) {
                 targetZoomStart.value = timeLine[zoom.startValue];
                 targetZoomEnd.value = timeLine[zoom.endValue];
                 targetZoomDur.value = targetZoomEnd.value - targetZoomStart.value + 1;
+            }
+            // Auto-sync zoom to TraceViewer when sync checkbox is enabled
+            if ($('#sync').prop('checked')) {
+                window.SyncToTraceView();
             }
         });
         chart.getZr().off('dblclick');
