@@ -42,6 +42,7 @@ urlpatterns = [
     #path('traceviewerv2', dataviewer.views.page_traceviewerv2),
     path('metricviewer', dataviewer.views.page_metricviewer),
     path('summaryviewer', dataviewer.views.page_summaryviewer),
+    path('perfettoviewer', dataviewer.views.page_perfettoviewer),
     path('crossviewer', dataviewer.views.page_crossviewer),
     path('api/show/upload', dataviewer.views.api_show_upload),
     path('api/show/server_load', dataviewer.views.api_show_server_load),

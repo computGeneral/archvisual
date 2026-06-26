@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8">
+  <title>Perfetto UI</title>
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
+  <link rel="shortcut icon" id="favicon" type="image/png" href="data:image/png;base64,iVBORw0KGgo=">
+</head>
+<body data-perfetto_version='{"stable": ".", "canary": ".", "autopush": "."}'>
+  <!--
+    Don't add any content here. The whole <body> is replaced by
+    frontend/index.ts when bootstrapping. This is only used for very early
+    error reporting.
+  -->
+  <style>
+  #app_load_failure {opacity:0;transition:opacity 1s ease;position:absolute;overflow:auto;background:#080082;top:0;left:0;width:100%;height:100%;bottom:0;right:0;margin:0;opacity:0;user-select:text}
+  #app_load_failure > pre {color:#fff;position:absolute;margin:auto;white-space:pre-wrap;top:10vh;max-width:90vw;width:880px;left:0;right:0;font-size:16px;line-height:30px;font-weight:700}
+  #app_load_failure > pre span {background:#fff;color:#080082;padding:2px}
+  #app_load_failure_dbg { overflow-wrap: break-word; font-size: 12px; line-height: 1; font-weight: initial;}
+  #app_load_failure a {color:#fff}
+  #app_load { position: absolute; top: 0; left: 0; right:0; bottom: 0; background-color: #2c3e50;}
+  #app_load_spinner { margin: 30vh auto; width: 150px; height: 150px; border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: app_load_spin 1s ease-in-out infinite; }
+  @keyframes app_load_spin { to { transform: rotate(360deg); } }
+  </style>
+  <div id="app_load"><div id="app_load_spinner"></div></div>
+  <div id="app_load_failure">
+<pre>
+<span>Perfetto UI - An unrecoverable problem occurred</span>
+
+If you are seeing this message, something went wrong while loading the UI.
+In most cases this is due to very slow or flaky network and it goes away by
+disabling and re-enabling WiFi or trying reloading.
+
+If the problem persists try these remediation steps:
+
+* Force-reload the page with Ctrl+Shift+R (Mac: Meta+Shift+R) or
+  Shift + click on the refresh button.
+
+* <a href="javascript:clearAllCaches();">Clear all the site storage and caches</a> and reload the page.
+
+* Clear the site data and caches from devtools, following <a target="_blank" href="https://developers.google.com/web/tools/chrome-devtools/storage/cache#deletecache">these instructions</a>.
+
+If none of this works, file a bug attaching logs and screenshots from devtools.
+  Googlers:      <a href="http://go/perfetto-ui-bug" target="_blank">go/perfetto-ui-bug</a>
+  Non-googlers:  <a href="https://github.com/google/perfetto/issues/new" target="_blank">github.com/google/perfetto/issues/new</a>
+
+<div id=app_load_failure_err></div>
+Technical Information:
+<div id=app_load_failure_dbg></div>
+</pre>
+  </div>
+  <script type="text/javascript">
+    'use strict';
+    (function () {
+      const TIMEOUT_MS = 120000;
+      let errTimerId = undefined;
+
+      function errHandler(err) {
+        // Note: we deliberately don't clearTimeout(), which means that this
+        // handler is called also in the happy case when the UI loads. In that
+        // case, though, the onCssLoaded() in frontend/index.ts will empty the
+        // <body>, so |div| below will be null and this function becomes a
+        // no-op.
+        const div = document.getElementById('app_load_failure');
+        if (!div) return;
+        div.style.opacity ='1';
+        const errDom = document.getElementById('app_load_failure_err');
+        if (!errDom) return;
+        console.error(err);
+        errDom.innerText += `${err}\n`;
+        const storageJson = JSON.stringify(window.localStorage);
+        const dbg = document.getElementById('app_load_failure_dbg');
+        if (!dbg) return;
+        dbg.innerText = `LocalStorage: ${storageJson}\n`;
+        if (errTimerId !== undefined) clearTimeout(errTimerId);
+      }
+
+      // For the 'Click here to clear all caches'.
+      window.clearAllCaches = async () => {
+        if (window.localStorage) window.localStorage.clear();
+        if (window.sessionStorage) window.sessionStorage.clear();
+        const promises = [];
+        if (window.caches) {
+          try {
+            const keys = await window.caches.keys();
+            keys.forEach(k => promises.push(window.caches.delete(k)));
+          } catch (_) {
+            // TODO(288483453)
+          }
+        }
+        if (navigator.serviceWorker) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          regs.forEach(reg => promises.push(reg.unregister()));
+        }
+        try {
+          await Promise.all(promises);
+        } catch (_) {
+          // TODO(288483453)
+        }
+        window.location.reload();
+      }
+
+      // If the frontend doesn't come up, make the error page above visible.
+      errTimerId = setTimeout(() => errHandler('Timed out'), TIMEOUT_MS);
+      window.onerror = errHandler;
+      window.onunhandledrejection = errHandler;
+
+      const versionStr = document.body.dataset['perfetto_version'] || '{}';
+      const versionMap = JSON.parse(versionStr);
+      const channel = localStorage.getItem('perfettoUiChannel') || 'stable';
+
+      // The '.' below is a fallback for the case of opening a pinned version
+      // (e.g., ui.perfetto.dev/v1.2.3./). In that case, the index.html has no
+      // valid version map; we want to load the frontend from the same
+      // sub-directory directory, hence ./frontend_bundle.js.
+      // Override to relative paths for local self-hosting (no CDN version prefix)
+      const version = '.';
+
+      // Preloading reduce latency of key assets requires for drawing the app.
+      // We need to strike a balance here to avoid kicking off too many
+      // concurrent requests and slowing down everything.
+      // Note: Fonts (and only fonts) require "crossorigin" as per
+      // https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preload.
+      const fontAttrs = {crossOrigin: '', as: 'font', type: 'font/woff2'}
+      const assetsPreload = {
+        '/frontend.css': {as: 'style'},
+        '/assets/MaterialSymbolsOutlined.woff2': fontAttrs,
+        '/assets/Roboto.woff2': fontAttrs,
+      };
+      for (const [preloadPath, preloadAttrs] of Object.entries(assetsPreload)) {
+        const preloadLink = document.createElement('link');
+        preloadLink.rel = 'preload';
+        preloadLink.href = version + preloadPath;
+        Object.assign(preloadLink, preloadAttrs);
+        document.head.append(preloadLink);
+      }
+
+      const script = document.createElement('script');
+      script.async = true;
+      script.src = version + '/frontend_bundle.js';
+      script.onerror = () => errHandler(`Failed to load ${script.src}`);
+
+      // ---- ArchVisual: Inject buttons after Perfetto UI renders ----
+      script.onload = function() {
+        // Reusable injection logic
+        function injectButtons() {
+          // ---- Method 1: Welcome page quick-start buttons ----
+          var btn = document.querySelector('.pf-home-page__button');
+          if (btn) {
+            var container = btn.parentElement;
+            if (container && !container.querySelector('.archvisual-server-file')) {
+              var siblings = container.children;
+              var openTraceBtn = null;
+              for (var i = 0; i < siblings.length; i++) {
+                if (siblings[i].textContent.indexOf('Open trace') !== -1) {
+                  openTraceBtn = siblings[i]; break;
+                }
+              }
+              if (openTraceBtn) {
+                var serverBtn = openTraceBtn.cloneNode(true);
+                serverBtn.className += ' archvisual-server-file';
+                serverBtn.style.cursor = 'pointer';
+                var label = serverBtn.querySelector('.pf-button__label');
+                if (label) label.textContent = 'Open Server Trace';
+                serverBtn.addEventListener('click', function(e) {
+                  e.stopPropagation(); e.preventDefault();
+                  ArchVisual_showServerBrowser();
+                });
+                openTraceBtn.parentElement.insertBefore(serverBtn, openTraceBtn.nextSibling);
+              }
+            }
+          }
+          // ---- Method 2: Sidebar "New Trace" list ----
+          var sidebarBtns = document.querySelectorAll('button');
+          var sidebarList = null;
+          var origBtn = null;
+          for (var j = 0; j < sidebarBtns.length; j++) {
+            if (sidebarBtns[j].textContent.indexOf('Open trace file') !== -1) {
+              origBtn = sidebarBtns[j];
+              sidebarList = origBtn.closest('ul, list');
+              break;
+            }
+          }
+          if (sidebarList && !sidebarList.querySelector('.archvisual-server-file')) {
+            // Rename original: "Open trace file" → "Open Local Trace"
+            if (origBtn) {
+              origBtn.childNodes.forEach(function(c) {
+                if (c.nodeType === 3 && c.textContent.trim() === 'Open trace file') {
+                  c.textContent = ' Open Local Trace';
+                }
+              });
+              var origLabel = origBtn.querySelector('.pf-button__label');
+              if (origLabel) origLabel.textContent = 'Open Local Trace';
+            }
+            // Clone to create "Open Server Trace"
+            var opLi = sidebarList.querySelector('li, listitem');
+            if (opLi) {
+              var srvLi = opLi.cloneNode(true);
+              srvLi.className += ' archvisual-server-file';
+              var srvBtn = srvLi.querySelector('button');
+              if (srvBtn) {
+                srvBtn.childNodes.forEach(function(c) {
+                  if (c.nodeType === 3 && c.textContent.trim() === 'Open Local Trace') {
+                    c.textContent = ' Open Server Trace';
+                  }
+                });
+                var srvLabel = srvBtn.querySelector('.pf-button__label');
+                if (srvLabel) srvLabel.textContent = 'Open Server Trace';
+                srvBtn.removeAttribute('onclick');
+                srvBtn.addEventListener('click', function(e) {
+                  e.stopPropagation(); e.preventDefault();
+                  ArchVisual_showServerBrowser();
+                });
+              }
+              opLi.parentElement.insertBefore(srvLi, opLi.nextSibling);
+            }
+          }
+        }
+
+        // Initial polling
+        var pollTries = 0;
+        function pollInject() {
+          pollTries++;
+          injectButtons();
+          if (pollTries < 80) setTimeout(pollInject, 300);
+        }
+        setTimeout(pollInject, 500);
+
+        // Persistent: re-inject every 2s (handles trace load/unload DOM rebuilds)
+        setInterval(injectButtons, 2000);
+      };
+
+      document.head.append(script);
+    })();
+  </script>
+</body>
+
+<script>
+// ArchVisual server file browser — injected dynamically after Perfetto loads
+(function() {
+  // Build overlay DOM without inline handlers (Perfetto CSP blocks them)
+  var overlay = document.createElement('div');
+  overlay.id = 'archvisual-server-overlay';
+  overlay.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.35);z-index:999999;justify-content:center;align-items:flex-start;padding-top:70px;';
+  var box = document.createElement('div');
+  box.style.cssText = 'width:520px;max-height:80%;background:#fff;border:1px solid #aaa;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(0,0,0,0.25);';
+  
+  var titleBar = document.createElement('div');
+  titleBar.style.cssText = 'background:#333;color:#fff;padding:5px 12px;display:flex;justify-content:space-between;align-items:center;font-size:90%;font-family:sans-serif;';
+  var titleSpan = document.createElement('span');
+  titleSpan.textContent = 'Server file browser';
+  titleBar.appendChild(titleSpan);
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '\u2715';
+  closeBtn.style.cssText = 'background:transparent;border:none;color:#fff;font-size:14px;cursor:pointer;';
+  closeBtn.addEventListener('click', function(){ ArchVisual_hideServerBrowser(); });
+  titleBar.appendChild(closeBtn);
+  box.appendChild(titleBar);
+  
+  var toolbar = document.createElement('div');
+  toolbar.style.cssText = 'padding:6px;display:flex;flex-direction:column;gap:4px;font-size:90%;font-family:sans-serif;';
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:6px;';
+  var upBtn = document.createElement('button');
+  upBtn.textContent = 'Up'; upBtn.style.cssText = 'flex:0 0 auto;height:26px;';
+  upBtn.addEventListener('click', function(){ ArchVisual_serverBrowserUp(); });
+  btnRow.appendChild(upBtn);
+  var refreshBtn = document.createElement('button');
+  refreshBtn.textContent = 'Refresh'; refreshBtn.style.cssText = 'flex:0 0 auto;height:26px;';
+  refreshBtn.addEventListener('click', function(){ ArchVisual_serverBrowserRefresh(); });
+  btnRow.appendChild(refreshBtn);
+  var pathInput = document.createElement('input');
+  pathInput.id = 'av-server-path'; pathInput.type = 'text';
+  pathInput.style.cssText = 'flex:1;height:26px;border:1px solid #ccc;padding:4px 6px;background:#fafafa;';
+  pathInput.addEventListener('keydown', function(e){ if(e.keyCode===13)ArchVisual_serverBrowserLoad(pathInput.value); });
+  btnRow.appendChild(pathInput);
+  toolbar.appendChild(btnRow);
+  var msgDiv = document.createElement('div');
+  msgDiv.id = 'av-server-msg'; msgDiv.style.cssText = 'color:#a00;font-size:85%;min-height:18px;';
+  toolbar.appendChild(msgDiv);
+  box.appendChild(toolbar);
+  
+  var fileList = document.createElement('div');
+  fileList.id = 'av-server-list';
+  fileList.style.cssText = 'flex:1;overflow:auto;border-top:1px solid #ddd;background:#fff;padding:6px;font-size:90%;font-family:sans-serif;';
+  box.appendChild(fileList);
+  
+  var bottomBar = document.createElement('div');
+  bottomBar.style.cssText = 'padding:6px;display:flex;gap:8px;align-items:center;border-top:1px solid #ddd;';
+  var selectedInput = document.createElement('input');
+  selectedInput.id = 'av-server-selected'; selectedInput.type = 'text'; selectedInput.readOnly = true;
+  selectedInput.placeholder = 'Select a trace file';
+  selectedInput.style.cssText = 'flex:1;height:26px;padding:4px 6px;border:1px solid #ccc;background:#f8f8f8;';
+  bottomBar.appendChild(selectedInput);
+  var loadBtn = document.createElement('button');
+  loadBtn.textContent = 'Load'; loadBtn.style.cssText = 'height:26px;';
+  loadBtn.addEventListener('click', function(){ ArchVisual_loadServerFile(); });
+  bottomBar.appendChild(loadBtn);
+  var cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel'; cancelBtn.style.cssText = 'height:26px;';
+  cancelBtn.addEventListener('click', function(){ ArchVisual_hideServerBrowser(); });
+  bottomBar.appendChild(cancelBtn);
+  box.appendChild(bottomBar);
+  
+  overlay.appendChild(box);
+  document.documentElement.appendChild(overlay);
+
+  var loading = document.createElement('div');
+  loading.id = 'archvisual-loading';
+  loading.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);z-index:9999999;justify-content:center;align-items:center;font-family:sans-serif;';
+  loading.innerHTML = '<span style="background:#fff;padding:12px 24px;border-radius:6px;font-size:14px;">Loading...</span>';
+  document.documentElement.appendChild(loading);
+
+  // Server browser functions
+  var ArchVisual_currentPath = null;
+  var ArchVisual_selected = null;
+
+  window.ArchVisual_showServerBrowser = function() {
+    document.getElementById('archvisual-server-overlay').style.display = 'flex';
+    document.getElementById('av-server-msg').innerText = '';
+    document.getElementById('av-server-selected').value = '';
+    ArchVisual_serverBrowserLoad('');
+  };
+
+  window.ArchVisual_hideServerBrowser = function() {
+    document.getElementById('archvisual-server-overlay').style.display = 'none';
+    document.getElementById('av-server-msg').innerText = '';
+    document.getElementById('av-server-list').innerHTML = '';
+    ArchVisual_currentPath = null;
+    ArchVisual_selected = null;
+  };
+
+  function showL() { document.getElementById('archvisual-loading').style.display = 'flex'; }
+  function hideL() { document.getElementById('archvisual-loading').style.display = 'none'; }
+
+  window.ArchVisual_serverBrowserLoad = function(path) {
+    showL();
+    fetch('/api/show/server_list', {
+      method: 'POST', headers: {'Content-Type':'application/json;charset=utf-8'},
+      body: JSON.stringify({path:path})
+    }).then(function(r){return r.json()}).then(function(res){
+      hideL();
+      if(res.code===0){
+        ArchVisual_currentPath=res.data.path;
+        document.getElementById('av-server-path').value=res.data.path;
+        var list=document.getElementById('av-server-list');list.innerHTML='';
+        if(res.data.parent){
+          var row=document.createElement('div');
+          row.style.cssText='padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer;font-weight:bold;';
+          row.innerText='.. (parent directory)';
+          row.onclick=function(){ArchVisual_serverBrowserLoad(res.data.parent)};
+          list.appendChild(row);
+        }
+        res.data.entries.forEach(function(item){
+          var row=document.createElement('div');
+          row.style.cssText='padding:6px 8px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;cursor:pointer;';
+          var label=document.createElement('span');
+          label.innerText=(item.type==='dir'?'📁 ':'📄 ')+item.name;
+          row.appendChild(label);
+          var info=document.createElement('span');
+          info.style.cssText='font-size:80%;color:'+(item.type==='dir'?'#666':(item.selectable?'#007bff':'#999'));
+          info.innerText=item.type==='dir'?'Directory':(item.selectable?'Select':'Unsupported');
+          row.appendChild(info);
+          if(item.type==='dir'){row.onclick=function(){ArchVisual_serverBrowserLoad(item.path)}}
+          else if(item.selectable){row.onclick=function(){
+            ArchVisual_selected=item.path;
+            document.getElementById('av-server-selected').value=item.path;
+            document.getElementById('av-server-msg').innerText='Ready to load '+item.name;
+          }}
+          else{row.style.cursor='default'}
+          list.appendChild(row);
+        });
+      }else{document.getElementById('av-server-msg').innerText=res.msg||'Unable to load server directory'}
+    }).catch(function(err){hideL();document.getElementById('av-server-msg').innerText='Server browse failed: '+err});
+  };
+
+  window.ArchVisual_serverBrowserUp = function() {
+    if(!ArchVisual_currentPath)return;
+    showL();
+    fetch('/api/show/server_list',{
+      method:'POST',headers:{'Content-Type':'application/json;charset=utf-8'},
+      body:JSON.stringify({path:ArchVisual_currentPath})
+    }).then(function(r){return r.json()}).then(function(res){
+      hideL();
+      if(res.code===0&&res.data.parent)ArchVisual_serverBrowserLoad(res.data.parent);
+    }).catch(function(err){hideL();document.getElementById('av-server-msg').innerText='Unable to navigate up: '+err});
+  };
+
+  window.ArchVisual_serverBrowserRefresh = function() {
+    if(ArchVisual_currentPath)ArchVisual_serverBrowserLoad(ArchVisual_currentPath);
+  };
+
+  window.ArchVisual_loadServerFile = function() {
+    var fp=document.getElementById('av-server-selected').value.trim();
+    if(!fp){alert('Please select a server file to load');return}
+    showL();
+    // Always request binary mode — base64-encoded, works for both text and binary files
+    fetch('/api/show/server_file',{
+      method:'POST',headers:{'Content-Type':'application/json;charset=utf-8'},
+      body:JSON.stringify({path:fp, binary:true})
+    }).then(function(r){return r.json()}).then(function(res){
+      hideL();
+      if(res.code===0){
+        // Decode base64 to get the raw bytes
+        var raw = Uint8Array.from(atob(res.data.content), function(c){return c.charCodeAt(0)});
+        var buf = raw.buffer;
+        var msg = {
+          type: 'RELAY_OPEN_TRACE',
+          buffer: res.data.content,  // send base64 string (cheaper than buffer)
+          name: res.data.name,
+          binary: true
+        };
+        window.parent.postMessage(msg, '*');
+        ArchVisual_hideServerBrowser();
+      }else{alert(res.msg||'Failed to load server file')}
+    }).catch(function(err){hideL();alert('Server load failed: '+err)});
+  };
+})();</script>

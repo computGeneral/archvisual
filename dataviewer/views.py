@@ -42,6 +42,9 @@ def page_traceviewer(request):
 def page_crossviewer(request):
     return render(request, 'crossviewer.html')
 
+def page_perfettoviewer(request):
+    return render(request, 'perfettoviewer.html')
+
 #def page_traceviewerv2(request):
 #    return render(request, 'traceviewerv2.html')
 
@@ -225,9 +228,11 @@ def api_show_server_list(request):
 @csrf_exempt
 @require_POST
 def api_show_server_file(request):
-    """Serve raw file content from the server filesystem for trace viewers."""
+    """Serve raw file content from the server filesystem for trace viewers.
+    Set binary=true in request body for base64-encoded binary output."""
     req_data = json.loads(request.body.decode())
     file_path = req_data.get('path', '').strip()
+    binary_mode = req_data.get('binary', False)
 
     if not file_path:
         return HttpResponse(json.dumps({'code': 1, 'msg': 'No file path provided'}),
@@ -242,6 +247,25 @@ def api_show_server_file(request):
     if os.path.isdir(file_path):
         return HttpResponse(json.dumps({'code': 1, 'msg': 'Path is a directory, not a file'}),
                             content_type='application/json')
+
+    if binary_mode:
+        try:
+            import base64
+            with open(file_path, 'rb') as f:
+                raw = f.read()
+            content = base64.b64encode(raw).decode('ascii')
+            return HttpResponse(json.dumps({
+                'code': 0,
+                'data': {
+                    'name': os.path.basename(file_path),
+                    'path': file_path,
+                    'content': content,
+                    'binary': True,
+                }
+            }), content_type='application/json')
+        except Exception as e:
+            return HttpResponse(json.dumps({'code': 1, 'msg': f'Error reading file: {str(e)}'}),
+                                content_type='application/json')
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>PerfettoViewer</title>
+    <link rel="icon" href="/static/image/traceviewer.ico" type="image/x-icon">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; width: 100%; overflow: hidden; }
+
+        .nav-bar {
+            height: 14px; line-height: 14px; overflow: hidden;
+            background-color: #333; font-family: sans-serif; font-size: 80%;
+            position: relative; z-index: 10; flex-shrink: 0;
+        }
+        .nav-bar.hidden { display: none !important; }
+
+        .content { flex: 1; width: 100%; overflow: hidden; position: relative; }
+
+        .footer {
+            width: 100%; height: 20px; background-color: #ddd; text-align: center;
+            font-family: sans-serif; font-size: 80%; color: #666;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .main-container { display: flex; flex-direction: column; height: 100%; width: 100%; }
+        .hidden { display: none !important; }
+
+        body.embedded .nav-bar { display: none !important; }
+        body.embedded .footer { display: none !important; }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <div class="nav-bar">
+            <a id="path" href='admin' style="float: left; font-weight: bold; color: #fff;">ArchVisual</a>
+            <span id="split" style="float: left; margin-left: 2px; color: #fff;">:</span>
+            <a id="path" href='metricviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">MetricViewer</a>
+            <span id="split" style="float: left; margin-left: 2px; color: #fff;">|</span>
+            <a id="path" href='traceviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">TraceViewer</a>
+            <span id="split" style="float: left; margin-left: 2px; color: #fff;">|</span>
+            <a id="path" href='perfettoviewer' style="float: left; margin-left: 2px; margin-right: 2px; font-weight: bold; color: #fff;">PerfettoViewer</a>
+            <span id="split" style="float: left; margin-left: 2px; color: #fff;">|</span>
+            <a id="path" href='crossviewer' style="float: left; margin-left: 2px; margin-right: 2px; color: #fff;">Metric vs. Trace</a>
+        </div>
+
+        <!-- Server file browser overlay -->
+        <div id="serverBrowserOverlay" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.35); z-index:9999; display:flex; justify-content:center; align-items:flex-start; padding-top:70px;">
+            <div style="width:520px; max-height:80%; background:#fff; border:1px solid #aaa; border-radius:6px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.25);">
+                <div style="background:#333; color:#fff; padding:5px 12px; display:flex; justify-content:space-between; align-items:center; font-size:90%;">
+                    <span>Server file browser</span>
+                    <button type="button" onclick="hideServerBrowser()" style="background:transparent; border:none; color:#fff; font-size:14px; cursor:pointer;">✕</button>
+                </div>
+                <div style="padding:6px; display:flex; flex-direction:column; gap:4px; font-size:90%;">
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" onclick="serverBrowserUp()" style="flex:0 0 auto; height:26px;">Up</button>
+                        <button type="button" onclick="serverBrowserRefresh()" style="flex:0 0 auto; height:26px;">Refresh</button>
+                        <input id="serverBrowserPath" type="text" onkeydown="serverBrowserPathKey(event)" style="flex:1; height:26px; border:1px solid #ccc; padding:4px 6px; background:#fafafa;">
+                    </div>
+                    <div id="serverBrowserMessage" style="color:#a00; font-size:85%; min-height:18px;"></div>
+                </div>
+                <div id="serverBrowserList" style="flex:1; overflow:auto; border-top:1px solid #ddd; background:#fff; padding:6px; font-size:90%;"></div>
+                <div style="padding:6px; display:flex; gap:8px; align-items:center; border-top:1px solid #ddd;">
+                    <input id="serverBrowserSelectedPath" type="text" readonly placeholder="Select a trace file" style="flex:1; height:26px; padding:4px 6px; border:1px solid #ccc; background:#f8f8f8;">
+                    <button type="button" onclick="loadServerFile()" style="height:26px;">Load</button>
+                    <button type="button" onclick="hideServerBrowser()" style="height:26px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:99999; justify-content:center; align-items:center;">
+            <span style="background:#fff; padding:12px 24px; border-radius:6px; font-size:14px;">Loading...</span>
+        </div>
+
+        <div class="content">
+            <iframe id="perfettoFrame"
+                src="/static/perfetto_ui/index.html?v=20260626s"
+                style="width:100%;height:100%;border:none;display:block;">
+            </iframe>
+        </div>
+        <div class="footer">
+            <p>(c) Copyright 2024-2030 computGeneral Limited. All Rights Reserved</p>
+        </div>
+    </div>
+</body>
+<script>
+    // Embedded mode
+    var urlParams = new URLSearchParams(window.location.search);
+    var isEmbedded = urlParams.get('embedded') === 'true';
+    if (isEmbedded) {
+        var navBar = document.querySelector('.nav-bar');
+        if (navBar) navBar.classList.add('hidden');
+        var footer = document.querySelector('.footer');
+        if (footer) footer.classList.add('hidden');
+        document.body.classList.add('embedded');
+    }
+
+    var perfettoFrame = document.getElementById('perfettoFrame');
+
+    // ---- Load trace into Perfetto via postMessage ----
+    function loadTraceIntoPerfetto(traceContent, fileName) {
+        var encoder = new TextEncoder();
+        var buffer = encoder.encode(traceContent).buffer;
+        perfettoFrame.contentWindow.postMessage(
+            { method: 'openTrace', args: [buffer], title: fileName || 'trace' },
+            '*'
+        );
+    }
+
+    // ---- Server file browser ----
+    function showServerBrowser() {
+        document.getElementById('serverBrowserOverlay').classList.remove('hidden');
+        document.getElementById('serverBrowserMessage').innerText = '';
+        document.getElementById('serverBrowserSelectedPath').value = '';
+        serverBrowserLoad('');
+    }
+
+    function hideServerBrowser() {
+        document.getElementById('serverBrowserOverlay').classList.add('hidden');
+        document.getElementById('serverBrowserMessage').innerText = '';
+        document.getElementById('serverBrowserList').innerHTML = '';
+        serverBrowserCurrentPath = null;
+        serverBrowserSelected = null;
+    }
+
+    var serverBrowserCurrentPath = null;
+    var serverBrowserSelected = null;
+
+    function serverBrowserLoad(path) {
+        showLoading();
+        fetch('/api/show/server_list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json;charset=utf-8' },
+            body: JSON.stringify({ path: path })
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            hideLoading();
+            if (res.code === 0) {
+                serverBrowserCurrentPath = res.data.path;
+                document.getElementById('serverBrowserPath').value = res.data.path;
+                var list = document.getElementById('serverBrowserList');
+                list.innerHTML = '';
+                if (res.data.parent) {
+                    var row = document.createElement('div');
+                    row.style.cssText = 'padding:6px 8px;border-bottom:1px solid #eee;cursor:pointer;font-weight:bold;';
+                    row.innerText = '.. (parent directory)';
+                    row.onclick = function() { serverBrowserLoad(res.data.parent); };
+                    list.appendChild(row);
+                }
+                res.data.entries.forEach(function(item) {
+                    var row = document.createElement('div');
+                    row.style.cssText = 'padding:6px 8px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;cursor:pointer;';
+                    var label = document.createElement('span');
+                    label.innerText = (item.type === 'dir' ? '\uD83D\uDCC1 ' : '\uD83D\uDCC4 ') + item.name;
+                    row.appendChild(label);
+                    var info = document.createElement('span');
+                    info.style.cssText = 'font-size:80%;color:' + (item.type === 'dir' ? '#666' : (item.selectable ? '#007bff' : '#999'));
+                    info.innerText = item.type === 'dir' ? 'Directory' : (item.selectable ? 'Select' : 'Unsupported');
+                    row.appendChild(info);
+                    if (item.type === 'dir') {
+                        row.onclick = function() { serverBrowserLoad(item.path); };
+                    } else if (item.selectable) {
+                        row.onclick = function() {
+                            serverBrowserSelected = item.path;
+                            document.getElementById('serverBrowserSelectedPath').value = item.path;
+                            document.getElementById('serverBrowserMessage').innerText = 'Ready to load ' + item.name;
+                        };
+                    } else {
+                        row.style.cursor = 'default';
+                    }
+                    list.appendChild(row);
+                });
+            } else {
+                document.getElementById('serverBrowserMessage').innerText = res.msg || 'Unable to load server directory';
+            }
+        }).catch(function(err) {
+            hideLoading();
+            document.getElementById('serverBrowserMessage').innerText = 'Server browse failed: ' + err;
+        });
+    }
+
+    function serverBrowserUp() {
+        if (!serverBrowserCurrentPath) return;
+        showLoading();
+        fetch('/api/show/server_list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json;charset=utf-8' },
+            body: JSON.stringify({ path: serverBrowserCurrentPath })
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            hideLoading();
+            if (res.code === 0 && res.data.parent) serverBrowserLoad(res.data.parent);
+        }).catch(function(err) {
+            hideLoading();
+            document.getElementById('serverBrowserMessage').innerText = 'Unable to navigate up: ' + err;
+        });
+    }
+
+    function serverBrowserRefresh() {
+        if (serverBrowserCurrentPath) serverBrowserLoad(serverBrowserCurrentPath);
+    }
+
+    function serverBrowserPathKey(event) {
+        if (event.keyCode === 13) serverBrowserLoad(document.getElementById('serverBrowserPath').value);
+    }
+
+    function loadServerFile() {
+        var filePath = document.getElementById('serverBrowserSelectedPath').value.trim();
+        if (!filePath) { alert('Please select a server file to load'); return; }
+        showLoading();
+        fetch('/api/show/server_file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json;charset=utf-8' },
+            body: JSON.stringify({ path: filePath })
+        }).then(function(r) { return r.json(); }).then(function(res) {
+            hideLoading();
+            if (res.code === 0) {
+                loadTraceIntoPerfetto(res.data.content, res.data.name);
+                hideServerBrowser();
+            } else {
+                alert(res.msg || 'Failed to load server file');
+            }
+        }).catch(function(err) {
+            hideLoading();
+            alert('Server load failed: ' + err);
+        });
+    }
+
+    function showLoading() { document.getElementById('loadingOverlay').style.display = 'flex'; }
+    function hideLoading() { document.getElementById('loadingOverlay').style.display = 'none'; }
+
+    // ---- Inject "Server file" button into Perfetto welcome page ----
+    // Handled by script in /static/perfetto_ui/index.html. When the user clicks
+    // "Server file" and loads a trace, it sends RELAY_OPEN_TRACE to this parent.
+    // We create an about:blank iframe to relay the openTrace message into the
+    // Perfetto iframe (bypassing Perfetto's CSP and same-window checks).
+
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'RELAY_OPEN_TRACE') {
+            var buf;
+            if (e.data.binary) {
+                // Decode base64 to raw bytes
+                var rawStr = atob(e.data.buffer);
+                var bytes = new Uint8Array(rawStr.length);
+                for (var i = 0; i < rawStr.length; i++) bytes[i] = rawStr.charCodeAt(i);
+                buf = bytes.buffer;
+            } else {
+                buf = new TextEncoder().encode(e.data.buffer).buffer;
+            }
+            // Post raw ArrayBuffer to Perfetto iframe
+            perfettoFrame.contentWindow.postMessage(buf, '*', [buf]);
+        }
+    });
+
+    // ---- BroadcastChannel sync ----
+    var bc = new BroadcastChannel('klxarch');
+    bc.onmessage = function(e) {
+        if (e.data.type === 'SYNC_METRIC_TO_TRACE') {
+            console.log('Perfetto sync:', e.data.center, e.data.duration);
+        }
+    };
+</script>
+
+</html>
