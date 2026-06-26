@@ -215,6 +215,23 @@ Technical Information:
               opLi.parentElement.insertBefore(srvLi, opLi.nextSibling);
             }
           }
+          // ---- Method 3: Hide unwanted sidebar items ----
+          var allItems = document.querySelectorAll('listitem, li');
+          for (var k = 0; k < allItems.length; k++) {
+            var txt = allItems[k].textContent;
+            if (txt.indexOf('Record new trace') !== -1 ||
+                txt.indexOf('Open Android example') !== -1 ||
+                txt.indexOf('Open Chrome example') !== -1) {
+              allItems[k].style.display = 'none';
+            }
+          }
+          // Also hide Record on welcome page
+          var welcomeBtns = document.querySelectorAll('.pf-home-page__button');
+          for (var m = 0; m < welcomeBtns.length; m++) {
+            if (welcomeBtns[m].textContent.indexOf('Record new trace') !== -1) {
+              welcomeBtns[m].style.display = 'none';
+            }
+          }
         }
 
         // Initial polling
