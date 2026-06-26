@@ -157,6 +157,9 @@ Technical Information:
                 }
               }
               if (openTraceBtn) {
+                // Rename original: "Open trace" → "Open Local File"
+                var origLabel1 = openTraceBtn.querySelector('.pf-button__label');
+                if (origLabel1) origLabel1.textContent = 'Open Local File';
                 var serverBtn = openTraceBtn.cloneNode(true);
                 serverBtn.className += ' archvisual-server-file';
                 serverBtn.style.cursor = 'pointer';
