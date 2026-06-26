@@ -209,8 +209,7 @@ def api_show_server_list(request):
             if os.path.isdir(full_path):
                 entries.append({'name': name, 'path': full_path, 'type': 'dir'})
             else:
-                selectable = name.endswith('.h5') or name.endswith('.csv')
-                entries.append({'name': name, 'path': full_path, 'type': 'file', 'selectable': selectable})
+                entries.append({'name': name, 'path': full_path, 'type': 'file', 'selectable': True})
     except Exception as e:
         return HttpResponse(json.dumps({'code': 1, 'msg': f'Unable to read directory: {str(e)}'}),
                             content_type='application/json')
