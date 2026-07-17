@@ -93,6 +93,23 @@
         .hidden {
             display: none !important;
         }
+
+        /* Background ink watermark */
+        body::after {
+            content: "ArchToy";
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 120px;
+            font-weight: 900;
+            color: rgba(0, 0, 0, 0.04);
+            font-family: sans-serif;
+            pointer-events: none;
+            z-index: 0;
+            white-space: nowrap;
+            user-select: none;
+        }
     </style>
 </head>
 
@@ -128,7 +145,7 @@
             </div>
         </div>
         <div class="footer">
-            <p>(c) Copyright 2016-2026 computGeneral Limited. All Rights Reserved</p>
+            <p>(c) Copyright 2016-2026 computGene@gmail.com. All Rights Reserved</p>
         </div>
     </div>
 </body>
