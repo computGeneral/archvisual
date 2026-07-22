@@ -126,6 +126,83 @@
             display: none !important;
         }
 
+        /* Pinned metric info cards (persistent, draggable tooltip snapshots) */
+        #pinnedCardsLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .pinned-card {
+            position: absolute;
+            pointer-events: auto;
+            min-width: 180px;
+            max-width: 280px;
+            background: rgba(255, 255, 255, 0.97);
+            border: 1px solid #aaa;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.25);
+            font-family: sans-serif;
+            font-size: 80%;
+            color: #222;
+            user-select: none;
+        }
+
+        .pinned-card .pin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 6px;
+            background: #eee;
+            border-bottom: 1px solid #ccc;
+            cursor: move;
+        }
+
+        .pinned-card .pin-header .pin-time-inline {
+            font-weight: bold;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .pinned-card .pin-header .pin-close {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 13px;
+            padding: 0 2px;
+            color: #666;
+        }
+
+        .pinned-card .pin-header .pin-close:hover {
+            color: #d00;
+        }
+
+        .pinned-card .pin-body {
+            padding: 4px 6px;
+            line-height: 1.4;
+        }
+
+        .pinned-card .pin-signal {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .pinned-card .pin-signal span:first-child {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         /* Background ink watermark */
         body::after {
             content: "ArchToy";
@@ -288,6 +365,7 @@
     <div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:9999; justify-content:center; align-items:center;">
         <span style="background:#fff; padding:12px 24px; border-radius:6px; font-size:14px;">Loading...</span>
     </div>
+    <div id="pinnedCardsLayer"></div>
     <div class="footer">
         <p>(c) Copyright 2016-2026 computGene@gmail.com. All Rights Reserved</p>
     </div>
@@ -731,6 +809,8 @@
                         width: 2
                     }
                 },
+                symbol: 'circle',
+                symbolSize: 1,
                 stack: stack_field,
                 seriesLayoutBy: 'row',
                 xAxisIndex: gridId,
@@ -1112,6 +1192,9 @@
         MetricSelectColor = {};
         // Clear markers for this panel
         markerPositions[activePanel] = [];
+        // Clear pinned cards for this panel (series reset below wipes markers)
+        clearPinnedCardsForPanel(activePanel);
+        currentHoverSnapshot[activePanel] = null;
         option_update({
             dataZoom: [{
                 xAxisIndex: []
@@ -1263,7 +1346,184 @@
 
 
     // Store marker positions for each panel (multiple markers support)
-    var markerPositions = {}; // { panelNum: [xAxis1, xAxis2, ...] }
+    // Each entry is { id, xAxis } so individual markers can be removed by id.
+    var markerPositions = {}; // { panelNum: [{id, xAxis}, ...] }
+    var markerIdCounter = 0;
+    function genMarkerId() { return 'mk_' + (++markerIdCounter); }
+
+    // Per-panel currently hovered sample (captured by the tooltip formatter)
+    var currentHoverSnapshot = {}; // { panelNum: {dataIndex, time, timeName, values} }
+
+    // Per-panel pinned cards: { panelNum: [{id, markerId, cardEl}, ...] }
+    var pinnedCards = {};
+    var pinnedCardIdCounter = 0;
+
+    // Gray pushpin icon (SVG so it can be recolored) rotated to point vertically.
+    var PIN_ICON_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" style="display:inline-block;vertical-align:middle;transform:rotate(45deg)" aria-hidden="true">'
+        + '<path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .345-.148z"/></svg>';
+
+    function getPanelChart(panel) {
+        return panel === 2 ? myChart2 : myChart;
+    }
+
+    // Freeze the currently hovered sample for the given panel into a draggable
+    // card that stays on screen. Also drops a linked ECharts marker on the sample.
+    function pinCurrentSample(panel) {
+        var snap = currentHoverSnapshot[panel];
+        if (!snap) {
+            console.log('No hover snapshot to pin');
+            return;
+        }
+        var chart = getPanelChart(panel);
+        if (!chart) return;
+
+        // Drop a marker on the sample and remember its id so closing the card
+        // can remove that exact marker.
+        var markerId = null;
+        if (chart._addMarkerAt) {
+            markerId = chart._addMarkerAt(snap.dataIndex);
+        }
+
+        if (!pinnedCards[panel]) pinnedCards[panel] = [];
+
+        var cardId = 'pin_' + (++pinnedCardIdCounter);
+        // Stack new cards with a small offset so multiple pins don't overlap
+        var offset = pinnedCards[panel].length * 24;
+        var accent = colorarrays[(pinnedCards[panel].length) % colorarrays.length];
+
+        var card = document.createElement('div');
+        card.className = 'pinned-card';
+        card.id = cardId;
+        card.dataset.panel = panel;
+        card.style.left = (24 + offset) + 'px';
+        card.style.top = (24 + offset) + 'px';
+        card.style.borderLeftColor = accent;
+
+        // Top row (drag handle): Time text on the left, vertical pin icon +
+        // close X grouped on the right — all on the same row.
+        var header = document.createElement('div');
+        header.className = 'pin-header';
+        var timeSpan = document.createElement('span');
+        timeSpan.className = 'pin-time-inline';
+        timeSpan.innerText = 'Time : ' + snap.time + (snap.timeName ? (', ' + snap.timeName) : '');
+
+        var rightGroup = document.createElement('span');
+        rightGroup.style.cssText = 'display:inline-flex;align-items:center;gap:2px;flex-shrink:0;';
+
+        // Vertical pin icon (display only, marks the card as pinned)
+        var pinIcon = document.createElement('span');
+        pinIcon.style.cssText = 'color:#999;display:inline-flex;align-items:center;';
+        pinIcon.innerHTML = PIN_ICON_SVG;
+        rightGroup.appendChild(pinIcon);
+
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'pin-close';
+        closeBtn.innerHTML = '✕';
+        closeBtn.onclick = function (e) {
+            e.stopPropagation();
+            removePinnedCard(panel, cardId);
+        };
+        rightGroup.appendChild(closeBtn);
+
+        header.appendChild(timeSpan);
+        header.appendChild(rightGroup);
+        card.appendChild(header);
+
+        // Body: each signal value with a leading color dot matching the chart legend
+        var body = document.createElement('div');
+        body.className = 'pin-body';
+        for (var sig in snap.values) {
+            var entry = snap.values[sig];
+            var sigColor = entry.color || '#888';
+            var row = document.createElement('div');
+            row.className = 'pin-signal';
+            var dot = document.createElement('span');
+            dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:'
+                + sigColor + ';margin-right:5px;flex-shrink:0;';
+            var l = document.createElement('span');
+            l.innerText = sig;
+            l.style.cssText = 'overflow:hidden;text-overflow:ellipsis;';
+            var lWrap = document.createElement('span');
+            lWrap.style.cssText = 'display:inline-flex;align-items:center;overflow:hidden;min-width:0;';
+            lWrap.appendChild(dot);
+            lWrap.appendChild(l);
+            var v = document.createElement('span');
+            v.innerText = entry.value;
+            row.appendChild(lWrap);
+            row.appendChild(v);
+            body.appendChild(row);
+        }
+        card.appendChild(body);
+
+        document.getElementById('pinnedCardsLayer').appendChild(card);
+        makeCardDraggable(card, header);
+
+        pinnedCards[panel].push({ id: cardId, markerId: markerId, cardEl: card });
+
+        // Hide the live tooltip once pinned so it doesn't cover the new card
+        try { chart.dispatchAction({ type: 'hideTip' }); } catch (e) {}
+    }
+
+    function removePinnedCard(panel, cardId) {
+        if (!pinnedCards[panel]) return;
+        var idx = -1;
+        for (var i = 0; i < pinnedCards[panel].length; i++) {
+            if (pinnedCards[panel][i].id === cardId) { idx = i; break; }
+        }
+        if (idx === -1) return;
+        var entry = pinnedCards[panel][idx];
+
+        // Remove the linked ECharts marker (if any) for this exact card
+        if (entry.markerId) {
+            var chart = getPanelChart(panel);
+            if (chart && chart._removeMarkerById) {
+                chart._removeMarkerById(entry.markerId);
+            }
+        }
+
+        if (entry.cardEl && entry.cardEl.parentNode) {
+            entry.cardEl.parentNode.removeChild(entry.cardEl);
+        }
+        pinnedCards[panel].splice(idx, 1);
+    }
+
+    function clearPinnedCardsForPanel(panel) {
+        if (!pinnedCards[panel]) return;
+        for (var i = 0; i < pinnedCards[panel].length; i++) {
+            var el = pinnedCards[panel][i].cardEl;
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        }
+        pinnedCards[panel] = [];
+    }
+
+    // Make a pinned card draggable by the given handle element.
+    function makeCardDraggable(card, handle) {
+        var startX, startY, origLeft, origTop, dragging = false;
+        handle.addEventListener('mousedown', function (e) {
+            if (e.target.classList.contains('pin-close')) return;
+            dragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            origLeft = parseInt(card.style.left, 10) || 0;
+            origTop = parseInt(card.style.top, 10) || 0;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function (e) {
+            if (!dragging) return;
+            var layer = document.getElementById('pinnedCardsLayer');
+            var maxX = layer.clientWidth - card.offsetWidth;
+            var maxY = layer.clientHeight - card.offsetHeight;
+            var nx = origLeft + (e.clientX - startX);
+            var ny = origTop + (e.clientY - startY);
+            nx = Math.max(0, Math.min(nx, maxX));
+            ny = Math.max(0, Math.min(ny, maxY));
+            card.style.left = nx + 'px';
+            card.style.top = ny + 'px';
+        });
+        document.addEventListener('mouseup', function () {
+            dragging = false;
+        });
+    }
 
     // Helper function to set up chart events for a given panel
     function setupChartEvents(chart, panelNum, timeLine, dataInterval, metricSelectList, lastClickedTargetRef) {
@@ -1403,29 +1663,15 @@
                 window.SyncToTraceView();
             }
         });
-        // Add marker at position - creates a new markLine entry for the marker
-        function addMarkerAtPosition(chart, panelNum, xAxis) {
-            var option = chart.getOption();
-            var setting = { 'series': [] };
-
-            // Generate a unique color for this new marker based on its index
-            var markerIndex = markerPositions[panelNum].length - 1;
-            var markerColor = colorarrays[markerIndex % colorarrays.length];
-
-            // Get the time value for display (if timeline is available)
-            var timeValue = (timeLine && xAxis >= 0 && xAxis < timeLine.length) ? timeLine[xAxis] : xAxis;
-
-            for (var i = 0; i < option['series'].length; i++) {
-                var series = option['series'][i];
-                var existingMarkLine = series.markLine || {
-                    silent: true,
-                    animation: false,
-                    data: []
-                };
-
-                // Create new marker data entry with time value label
-                var newMarkerData = {
-                    xAxis: xAxis,
+        // Rebuild every series' markLine from the current markerPositions state.
+        // Single source of truth: markerPositions[panelNum] = [{id, xAxis}, ...].
+        function rebuildMarkers(chart, panelNum) {
+            var markers = markerPositions[panelNum] || [];
+            var dataEntries = markers.map(function (m, idx) {
+                var markerColor = colorarrays[idx % colorarrays.length];
+                return {
+                    markerId: m.id,
+                    xAxis: m.xAxis,
                     symbol: 'none',
                     label: {
                         show: true,
@@ -1438,22 +1684,25 @@
                         type: 'dashed'
                     }
                 };
+            });
 
-                // Add to existing markers (keep all previous markers)
-                var newData = existingMarkLine.data || [];
-                newData.push(newMarkerData);
-
+            var option = chart.getOption();
+            var setting = { 'series': [] };
+            for (var i = 0; i < option['series'].length; i++) {
                 setting['series'].push({
                     markLine: {
                         silent: true,
                         animation: false,
-                        data: newData
+                        data: dataEntries
                     }
                 });
             }
-            if (setting['series'].length > 0) {
-                chart.setOption(setting);
-            }
+            chart.setOption(setting);
+        }
+
+        // Add marker at position. Callers manage markerPositions; this rebuilds visuals.
+        function addMarkerAtPosition(chart, panelNum, xAxis) {
+            rebuildMarkers(chart, panelNum);
         }
 
         // Remove last marker - rebuilds markLine without the last entry
@@ -1462,51 +1711,27 @@
                 return false; // No markers to remove
             }
 
-            // Remove last position from array
             markerPositions[panelNum].pop();
+            rebuildMarkers(chart, panelNum);
+            return true;
+        }
 
-            var option = chart.getOption();
-            var setting = { 'series': [] };
-
-            for (var i = 0; i < option['series'].length; i++) {
-                var series = option['series'][i];
-                var existingMarkLine = series.markLine || { data: [] };
-                var data = existingMarkLine.data || [];
-
-                // Remove last marker entry
-                if (data.length > 0) {
-                    data.pop();
-                }
-
-                setting['series'].push({
-                    markLine: {
-                        silent: true,
-                        animation: false,
-                        data: data
-                    }
-                });
-            }
-            chart.setOption(setting);
+        // Remove a single marker by its stable id
+        function removeMarkerById(chart, panelNum, id) {
+            if (!markerPositions[panelNum]) return false;
+            var before = markerPositions[panelNum].length;
+            markerPositions[panelNum] = markerPositions[panelNum].filter(function (m) {
+                return m.id !== id;
+            });
+            if (markerPositions[panelNum].length === before) return false;
+            rebuildMarkers(chart, panelNum);
             return true;
         }
 
         // Remove all markers for this panel
         function removeAllMarkers(chart, panelNum) {
             markerPositions[panelNum] = [];
-
-            var option = chart.getOption();
-            var setting = { 'series': [] };
-
-            for (var i = 0; i < option['series'].length; i++) {
-                setting['series'].push({
-                    markLine: {
-                        silent: true,
-                        animation: false,
-                        data: []
-                    }
-                });
-            }
-            chart.setOption(setting);
+            rebuildMarkers(chart, panelNum);
         }
 
         chart.getZr().off('dblclick');
@@ -1524,7 +1749,7 @@
                 xAxis = -1;
 
             // Add this position to the marker array
-            markerPositions[panelNum].push(xAxis);
+            markerPositions[panelNum].push({ id: genMarkerId(), xAxis: xAxis });
 
             // Add marker to chart
             addMarkerAtPosition(chart, panelNum, xAxis);
@@ -1537,6 +1762,17 @@
             param.event.stopPropagation();
             removeLastMarker(chart, panelNum);
         });
+
+        // Expose marker helpers so the global pinned-card handler can reuse them
+        chart._addMarkerAt = function (xAxis) {
+            markerPositions[panelNum].push({ id: genMarkerId(), xAxis: xAxis });
+            addMarkerAtPosition(chart, panelNum, xAxis);
+            // Return the id so callers (e.g. pinned cards) can later remove this exact marker
+            return markerPositions[panelNum][markerPositions[panelNum].length - 1].id;
+        };
+        chart._removeMarkerById = function (id) {
+            return removeMarkerById(chart, panelNum, id);
+        };
 
         window.addEventListener('resize', function() {
             chart.resize();
@@ -1596,6 +1832,9 @@
 
             // Clear markers when loading new file
             markerPositions[panel] = [];
+            // Clear pinned cards for this panel (markers above are gone, so skip marker removal)
+            clearPinnedCardsForPanel(panel);
+            currentHoverSnapshot[panel] = null;
 
             // Initialize chart for panel 2 if needed
             if (isSecondary && !myChart2) {
@@ -1676,6 +1915,8 @@
                     show: true,
                     trigger: "axis",
                     triggerOn: "mousemove|click",
+                    enterable: true,
+                    hideDelay: 200,
                     order: "valueDesc",
                     position: function (point, params, dom, rect, size) {
                         var viewWidth = size.viewSize[0];
@@ -1697,8 +1938,30 @@
                         var ndata = data.sort((a, b) => {
                             return b.value - a.value;
                         });
-                        let str = 'Time : ' + ndata[0].axisValue + ',' + targetTimeNames[ndata[0].dataIndex];
+                        // Pin icon at the top-right corner: freezes this sample's
+                        // reading into a draggable card. stopPropagation prevents
+                        // the click from being treated as a chart click.
+                        let str = '<span style="float:right;cursor:pointer;color:#999;padding:0 6px;" '
+                            + 'onclick="event.stopPropagation(); pinCurrentSample(' + panel + ')" '
+                            + 'title="Pin this sample">' + PIN_ICON_SVG + '</span>';
+                        str += 'Time : ' + ndata[0].axisValue + ',' + targetTimeNames[ndata[0].dataIndex];
                         var option = targetChart.getOption();
+
+                        // Capture a snapshot of the currently hovered sample so the
+                        // Pin button below can freeze it into a persistent card.
+                        var snap = {
+                            dataIndex: ndata[0].dataIndex,
+                            time: ndata[0].axisValue,
+                            timeName: targetTimeNames[ndata[0].dataIndex],
+                            values: {}
+                        };
+                        for (var i = 0; i < ndata.length; i++) {
+                            var sigName = ndata[i].seriesId.split('&')[1];
+                            var sigColor = option['series'][ndata[i].seriesIndex]['areaStyle']['color'];
+                            snap.values[sigName] = { value: ndata[i].value, color: sigColor };
+                        }
+                        currentHoverSnapshot[panel] = snap;
+
                         if (option['series'][ndata[0].seriesIndex]['stack'] != null) {
                             var sum = 0;
                             for (var i = 0; i < data.length; i++) {
