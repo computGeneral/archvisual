@@ -476,6 +476,21 @@
                 console.log('No target to delete!');
             }
         }
+        // 'M' key to clear all markers for active panel
+        if (event.key === 'm' || event.key === 'M') {
+            event.preventDefault();
+            var activeChart = getActiveChart().chart;
+            removeAllMarkers(activeChart, activePanel);
+            console.log('Cleared all markers for panel', activePanel);
+        }
+        // 'U' key to undo last marker
+        if (event.key === 'u' || event.key === 'U') {
+            event.preventDefault();
+            var activeChart = getActiveChart().chart;
+            if (!removeLastMarker(activeChart, activePanel)) {
+                console.log('No markers to remove');
+            }
+        }
     });
 
     // Remove z key event handlers - zoom selection now works with mouse drag only
@@ -739,16 +754,31 @@
         var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
 
         var option = targetChart.getOption();
+
+        // Initialize dataZoom xAxisIndex arrays properly
+        var xAxisIndexList = [];
+        if (option['dataZoom'] && option['dataZoom'].length > 0) {
+            xAxisIndexList = option['dataZoom'][0]['xAxisIndex'] || [];
+        }
+
         var update_option = {
             dataZoom: [{
-                xAxisIndex: option['dataZoom'][0]['xAxisIndex']
-            }, { xAxisIndex: option['dataZoom'][1]['xAxisIndex'] }],
+                xAxisIndex: xAxisIndexList
+            }, { xAxisIndex: xAxisIndexList }],
             series: [],
             grid: [],
             xAxis: [],
             yAxis: [],
+            legend: {
+                type: "scroll",
+                show: true,
+                bottom: "30px",
+                orient: "horizontal",
+                icon: "square",
+                selectedMode: true,
+            }
         };
-        var nId = option['grid'].length;
+        var nId = option['grid'] ? option['grid'].length : 0;
         for (var group_name in update_signal_data) {
             if (!(group_name in targetMetricSelectList)) {
                 gridId = nId;
@@ -1073,15 +1103,25 @@
     function ClearAll() {
         var isSecondary = activePanel === 2;
         var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+        var targetChart = isSecondary ? myChart2 : myChart;
 
-        targetMetricSelectList = {};
+        // Properly clear the global object by deleting all keys
+        for (var key in targetMetricSelectList) {
+            delete targetMetricSelectList[key];
+        }
         MetricSelectColor = {};
+        // Clear markers for this panel
+        markerPositions[activePanel] = [];
         option_update({
             dataZoom: [{
                 xAxisIndex: []
             }, {
                 xAxisIndex: []
             }],
+            series: [],
+            grid: [],
+            xAxis: [],
+            yAxis: [],
             legend: {
                 type: "scroll",
                 show: true,
@@ -1222,6 +1262,9 @@
     }
 
 
+    // Store marker positions for each panel (multiple markers support)
+    var markerPositions = {}; // { panelNum: [xAxis1, xAxis2, ...] }
+
     // Helper function to set up chart events for a given panel
     function setupChartEvents(chart, panelNum, timeLine, dataInterval, metricSelectList, lastClickedTargetRef) {
         var cur_data_index = -1;
@@ -1230,6 +1273,11 @@
         var targetZoomStart = panelNum === 2 ? zoom_input_start2 : zoom_input_start;
         var targetZoomEnd = panelNum === 2 ? zoom_input_end2 : zoom_input_end;
         var targetZoomDur = panelNum === 2 ? zoom_output_dur2 : zoom_output_dur;
+
+        // Initialize marker positions array for this panel
+        if (!(panelNum in markerPositions)) {
+            markerPositions[panelNum] = [];
+        }
 
         // Enable zoom selection mode by default (left mouse button drag for zoom)
         chart.dispatchAction({
@@ -1355,6 +1403,112 @@
                 window.SyncToTraceView();
             }
         });
+        // Add marker at position - creates a new markLine entry for the marker
+        function addMarkerAtPosition(chart, panelNum, xAxis) {
+            var option = chart.getOption();
+            var setting = { 'series': [] };
+
+            // Generate a unique color for this new marker based on its index
+            var markerIndex = markerPositions[panelNum].length - 1;
+            var markerColor = colorarrays[markerIndex % colorarrays.length];
+
+            // Get the time value for display (if timeline is available)
+            var timeValue = (timeLine && xAxis >= 0 && xAxis < timeLine.length) ? timeLine[xAxis] : xAxis;
+
+            for (var i = 0; i < option['series'].length; i++) {
+                var series = option['series'][i];
+                var existingMarkLine = series.markLine || {
+                    silent: true,
+                    animation: false,
+                    data: []
+                };
+
+                // Create new marker data entry with time value label
+                var newMarkerData = {
+                    xAxis: xAxis,
+                    symbol: 'none',
+                    label: {
+                        show: true,
+                        formatter: '{c}',
+                        color: markerColor
+                    },
+                    lineStyle: {
+                        color: markerColor,
+                        width: 1,
+                        type: 'dashed'
+                    }
+                };
+
+                // Add to existing markers (keep all previous markers)
+                var newData = existingMarkLine.data || [];
+                newData.push(newMarkerData);
+
+                setting['series'].push({
+                    markLine: {
+                        silent: true,
+                        animation: false,
+                        data: newData
+                    }
+                });
+            }
+            if (setting['series'].length > 0) {
+                chart.setOption(setting);
+            }
+        }
+
+        // Remove last marker - rebuilds markLine without the last entry
+        function removeLastMarker(chart, panelNum) {
+            if (!markerPositions[panelNum] || markerPositions[panelNum].length === 0) {
+                return false; // No markers to remove
+            }
+
+            // Remove last position from array
+            markerPositions[panelNum].pop();
+
+            var option = chart.getOption();
+            var setting = { 'series': [] };
+
+            for (var i = 0; i < option['series'].length; i++) {
+                var series = option['series'][i];
+                var existingMarkLine = series.markLine || { data: [] };
+                var data = existingMarkLine.data || [];
+
+                // Remove last marker entry
+                if (data.length > 0) {
+                    data.pop();
+                }
+
+                setting['series'].push({
+                    markLine: {
+                        silent: true,
+                        animation: false,
+                        data: data
+                    }
+                });
+            }
+            chart.setOption(setting);
+            return true;
+        }
+
+        // Remove all markers for this panel
+        function removeAllMarkers(chart, panelNum) {
+            markerPositions[panelNum] = [];
+
+            var option = chart.getOption();
+            var setting = { 'series': [] };
+
+            for (var i = 0; i < option['series'].length; i++) {
+                setting['series'].push({
+                    markLine: {
+                        silent: true,
+                        animation: false,
+                        data: []
+                    }
+                });
+            }
+            chart.setOption(setting);
+        }
+
         chart.getZr().off('dblclick');
         chart.getZr().on('dblclick', function (param) {
             let x = param.offsetX;
@@ -1368,15 +1522,22 @@
             let xAxis = result[0];
             if (xAxis === undefined)
                 xAxis = -1;
-            var option = chart.getOption();
-            var setting = { 'series': [] }
-            for (var i = 0; i < option['series'].length; i++) {
-                tmp = option['series'][i]['markLine']
-                tmp['data'][0]['xAxis'] = xAxis
-                setting['series'].push({ 'markLine': tmp })
-            }
-            chart.setOption(setting)
+
+            // Add this position to the marker array
+            markerPositions[panelNum].push(xAxis);
+
+            // Add marker to chart
+            addMarkerAtPosition(chart, panelNum, xAxis);
         });
+
+        // Right-click to remove last marker
+        chart.getZr().off('contextmenu');
+        chart.getZr().on('contextmenu', function (param) {
+            param.event.preventDefault();
+            param.event.stopPropagation();
+            removeLastMarker(chart, panelNum);
+        });
+
         window.addEventListener('resize', function() {
             chart.resize();
         });
@@ -1432,6 +1593,9 @@
             var targetDom = isSecondary ? dom2 : dom;
             var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
             var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+            // Clear markers when loading new file
+            markerPositions[panel] = [];
 
             // Initialize chart for panel 2 if needed
             if (isSecondary && !myChart2) {
