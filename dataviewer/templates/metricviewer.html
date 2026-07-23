@@ -1439,6 +1439,28 @@
         return panel === 2 ? myChart2 : myChart;
     }
 
+    // On zoom/pan, recompute each pinned card's marker pixel X and restore the
+    // card's stored horizontal offset from it, so the card follows its marker.
+    function repositionPinnedCardsForZoom(chart, panel) {
+        var cards = pinnedCards[panel];
+        if (!cards || cards.length === 0) return;
+        var chartDom = panel === 2 ? dom2 : dom;
+        if (!chartDom) return;
+        var cRect = chartDom.getBoundingClientRect();
+        for (var i = 0; i < cards.length; i++) {
+            var c = cards[i];
+            if (!c.cardEl || c.dataIndex === undefined) continue;
+            var px = NaN;
+            try {
+                // Scalar form: convertToPixel returns the x pixel as a number.
+                px = chart.convertToPixel({ xAxisIndex: 0 }, c.dataIndex);
+            } catch (e) {}
+            if (!isFinite(px)) continue;
+            var newLeft = cRect.left + px + (c.relDx || 0);
+            c.cardEl.style.left = newLeft + 'px';
+        }
+    }
+
     // Freeze the currently hovered sample for the given panel into a draggable
     // card that stays on screen. Also drops a linked ECharts marker on the sample.
     function pinCurrentSample(panel) {
@@ -1460,17 +1482,32 @@
         if (!pinnedCards[panel]) pinnedCards[panel] = [];
 
         var cardId = 'pin_' + (++pinnedCardIdCounter);
-        // Stack new cards with a small offset so multiple pins don't overlap
-        var offset = pinnedCards[panel].length * 24;
+        // Spawn exactly on the hover tooltip — no stacking offset, so every
+        // pin lands at the same spot. (Cards are draggable + closable, so
+        // overlap is recoverable.)
+        var offset = 0;
         var accent = markerColors[(pinnedCards[panel].length) % markerColors.length];
 
-        // Spawn the card where the hover tooltip was showing. The tooltip
-        // position is stored in chart-container pixels; convert to layer
-        // (viewport) pixels via the chart container's bounding rect.
+        // Spawn the card exactly where the hover tooltip is showing. Read the
+        // tooltip's live rendered rect (its className is 'mv-tooltip') so we
+        // get the true viewport top-left, then hideTip() removes the tooltip
+        // and leaves the card in its place.
         var chartDom = panel === 2 ? dom2 : dom;
         var startLeft = 24;
         var startTop = 24;
-        if (lastTooltipPos[panel] && chartDom) {
+        var tipEl = chartDom ? chartDom.querySelector('.mv-tooltip') : null;
+        if (tipEl) {
+            var tr = tipEl.getBoundingClientRect();
+            // Only use the tooltip rect if it's actually visible
+            if (tr.width > 0 && tr.height > 0) {
+                startLeft = tr.left;
+                startTop = tr.top;
+            } else if (lastTooltipPos[panel] && chartDom) {
+                var rect = chartDom.getBoundingClientRect();
+                startLeft = rect.left + lastTooltipPos[panel].x;
+                startTop = rect.top + lastTooltipPos[panel].y;
+            }
+        } else if (lastTooltipPos[panel] && chartDom) {
             var rect = chartDom.getBoundingClientRect();
             startLeft = rect.left + lastTooltipPos[panel].x;
             startTop = rect.top + lastTooltipPos[panel].y;
@@ -1554,7 +1591,23 @@
         document.getElementById('pinnedCardsLayer').appendChild(card);
         makeCardDraggable(card, header);
 
-        pinnedCards[panel].push({ id: cardId, markerId: markerId, cardEl: card });
+        // Remember the card's horizontal offset from its marker's pixel X so
+        // we can keep that relative position when the chart zooms/pans.
+        var markerPxX = NaN;
+        try {
+            var cRect = chartDom.getBoundingClientRect();
+            // Scalar form: convertToPixel returns the x pixel as a number.
+            markerPxX = cRect.left + chart.convertToPixel({ xAxisIndex: 0 }, snap.dataIndex);
+        } catch (e) {}
+        var relDx = isFinite(markerPxX) ? (startLeft - markerPxX) : 0;
+
+        pinnedCards[panel].push({
+            id: cardId,
+            markerId: markerId,
+            cardEl: card,
+            dataIndex: snap.dataIndex,
+            relDx: relDx
+        });
 
         // Hide the live tooltip once pinned so it doesn't cover the new card
         try { chart.dispatchAction({ type: 'hideTip' }); } catch (e) {}
@@ -1758,6 +1811,15 @@
                 targetZoomEnd.value = timeLine[zoom.endValue];
                 targetZoomDur.value = targetZoomEnd.value - targetZoomStart.value + 1;
             }
+            // Keep pinned cards at their stored horizontal offset from their
+            // linked marker: recompute each marker's pixel X under the new zoom
+            // and shift the card to match. Vertical position is left untouched.
+            // Defer so the chart has updated its pixel coordinate system.
+            var zchart = chart;
+            var zpanel = panelNum;
+            setTimeout(function () {
+                repositionPinnedCardsForZoom(zchart, zpanel);
+            }, 0);
             // Auto-sync zoom to TraceViewer when sync checkbox is enabled
             if ($('#sync').prop('checked')) {
                 window.SyncToTraceView();
@@ -2035,6 +2097,7 @@
                     enterable: true,
                     hideDelay: 200,
                     padding: 0,
+                    className: 'mv-tooltip',
                     extraCssText: "font-size: 80%;",
                     order: "valueDesc",
                     position: function (point, params, dom, rect, size) {
@@ -2042,22 +2105,32 @@
                         var viewHeight = size.viewSize[1];
                         var boxWidth = size.contentSize[0];
                         var boxHeight = size.contentSize[1];
+                        var gap = 5; // offset of the tooltip from the mouse pointer
                         var posX = 0;
                         var posY = 0;
 
-                        if (point[0] + boxWidth + 5 <= viewWidth) {
-                            posX = point[0];
+                        // X: place to the right of the pointer (+gap) when it fits,
+                        // otherwise flip to the left (-gap).
+                        if (point[0] + boxWidth + gap <= viewWidth) {
+                            posX = point[0] + gap;
                         } else {
-                            posX = point[0] - boxWidth;
+                            posX = point[0] - boxWidth - gap;
+                        }
+                        // Y: place below the pointer (+gap) when it fits, otherwise
+                        // flip above (-gap).
+                        if (point[1] + boxHeight + gap <= viewHeight) {
+                            posY = point[1] + gap;
+                        } else {
+                            posY = point[1] - boxHeight - gap;
                         }
 
                         // Remember the tooltip's position (pixels relative to the
                         // chart container) so a pinned card can spawn there.
                         // Capture the values we return (dom.offsetLeft is stale
                         // here because ECharts hasn't positioned the tooltip yet).
-                        lastTooltipPos[panel] = { x: posX, y: point[1] };
+                        lastTooltipPos[panel] = { x: posX, y: posY };
 
-                        return [posX, point[1]];
+                        return [posX, posY];
                     },
                     formatter: function (data) {
                         var ndata = data.sort((a, b) => {
