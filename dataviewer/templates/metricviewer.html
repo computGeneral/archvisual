@@ -1611,8 +1611,12 @@
             var maxY = layer.clientHeight - card.offsetHeight;
             var nx = origLeft + (e.clientX - startX);
             var ny = origTop + (e.clientY - startY);
-            nx = Math.max(0, Math.min(nx, maxX));
-            ny = Math.max(0, Math.min(ny, maxY));
+            // Allow the card to be dragged past the viewport edges (partially
+            // off-screen), but keep a small grip visible so it can be dragged
+            // back. The layer is position:fixed over the full page.
+            var grip = 40;
+            nx = Math.max(-card.offsetWidth + grip, Math.min(nx, layer.clientWidth - grip));
+            ny = Math.max(-card.offsetHeight + grip, Math.min(ny, layer.clientHeight - grip));
             card.style.left = nx + 'px';
             card.style.top = ny + 'px';
         });
