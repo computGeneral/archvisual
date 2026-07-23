@@ -671,19 +671,20 @@
                        '#dbdb8dff', // light yellow-green
                        '#9edae5ff'  // light blue-teal
     ];
-    // Distinct palette for markers/pinned-card accents — intentionally
-    // disjoint from the muted signal-bar palette (colorarrays) so markers
-    // read separately from the data bars.
-    var markerColors = ['#e91e63', // bright magenta
-                        '#00bcd4', // bright cyan
-                        '#ffc107', // amber/gold
-                        '#8bc34a', // bright lime green
-                        '#ff5722', // vivid orange-red
-                        '#3f51b5', // bold indigo
-                        '#009688', // teal
-                        '#cddc39', // yellow-green
-                        '#673ab7', // deep purple
-                        '#f44336'  // bright red
+    // Marker/pinned-card accent palette — a wide ramp from black through
+    // grays into deep purple and blue, with large strides between shades so
+    // consecutive markers are easy to tell apart. Kept on the darker/deep
+    // side so this annotation layer reads separately from the muted data bars.
+    var markerColors = ['#000000', // black
+                        '#bfbfbf', // light gray
+                        '#404040', // dark gray
+                        '#7f7f7f', // medium gray
+                        '#4b0082', // indigo / deep purple
+                        '#1a237e', // deep blue
+                        '#6a1b9a', // purple
+                        '#0d47a1', // navy blue
+                        '#5e35b1', // violet
+                        '#1565c0'  // strong blue
     ];
     var CurMetricSelectList = []
     var CurMetricSelectList2 = []
@@ -1725,16 +1726,17 @@
         // Single source of truth: markerPositions[panelNum] = [{id, xAxis}, ...].
         function rebuildMarkers(chart, panelNum) {
             var markers = markerPositions[panelNum] || [];
+            // Map each marker's sample position to its color, so we can tint
+            // the matching x-axis tick instead of drawing a value label above.
+            var posColorMap = {};
             var dataEntries = markers.map(function (m, idx) {
                 var markerColor = markerColors[idx % markerColors.length];
+                posColorMap[m.xAxis] = markerColor;
                 return {
                     markerId: m.id,
                     xAxis: m.xAxis,
-                    symbol: 'none',
                     label: {
-                        show: true,
-                        formatter: '{c}',
-                        color: markerColor
+                        show: false
                     },
                     lineStyle: {
                         color: markerColor,
@@ -1745,12 +1747,28 @@
             });
 
             var option = chart.getOption();
-            var setting = { 'series': [] };
+            var setting = { 'series': [], 'xAxis': [] };
+            // Tint the x-axis tick at each marker's position with that marker's
+            // color; other ticks stay neutral.
+            var axisLabelColor = function (value, index) {
+                return posColorMap[index] || '#333';
+            };
+            for (var i = 0; i < option['xAxis'].length; i++) {
+                setting['xAxis'].push({
+                    axisLabel: {
+                        show: true,
+                        color: axisLabelColor
+                    }
+                });
+            }
             for (var i = 0; i < option['series'].length; i++) {
                 setting['series'].push({
                     markLine: {
                         silent: true,
                         animation: false,
+                        // Triangle at the top (end) only, none at the bottom (start).
+                        symbol: ['none', 'triangle'],
+                        symbolSize: 7,
                         data: dataEntries
                     }
                 });
