@@ -1905,6 +1905,25 @@
                 });
             }
             for (var i = 0; i < option['series'].length; i++) {
+                // Preserve each series' original average markLine (the
+                // horizontal avg dash line) and merge it with the current
+                // marker entries, so adding/removing markers doesn't wipe
+                // the average line.
+                var origMark = option['series'][i].markLine;
+                var avgEntry = null;
+                if (origMark && origMark.data) {
+                    for (var d = 0; d < origMark.data.length; d++) {
+                        if (origMark.data[d] && origMark.data[d].type === 'average') {
+                            avgEntry = origMark.data[d];
+                            break;
+                        }
+                    }
+                }
+                var mergedData = dataEntries.slice();
+                if (avgEntry) {
+                    // Suppress the marker triangle symbol on the average line.
+                    mergedData.unshift(Object.assign({}, avgEntry, { symbol: 'none' }));
+                }
                 setting['series'].push({
                     markLine: {
                         silent: true,
@@ -1912,7 +1931,7 @@
                         // Triangle at the top (end) only, none at the bottom (start).
                         symbol: ['none', 'triangle'],
                         symbolSize: 7,
-                        data: dataEntries
+                        data: mergedData
                     }
                 });
             }
