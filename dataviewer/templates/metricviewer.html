@@ -671,6 +671,20 @@
                        '#dbdb8dff', // light yellow-green
                        '#9edae5ff'  // light blue-teal
     ];
+    // Distinct palette for markers/pinned-card accents — intentionally
+    // disjoint from the muted signal-bar palette (colorarrays) so markers
+    // read separately from the data bars.
+    var markerColors = ['#e91e63', // bright magenta
+                        '#00bcd4', // bright cyan
+                        '#ffc107', // amber/gold
+                        '#8bc34a', // bright lime green
+                        '#ff5722', // vivid orange-red
+                        '#3f51b5', // bold indigo
+                        '#009688', // teal
+                        '#cddc39', // yellow-green
+                        '#673ab7', // deep purple
+                        '#f44336'  // bright red
+    ];
     var CurMetricSelectList = []
     var CurMetricSelectList2 = []
     var MetricSelectInDiv = false;
@@ -1410,7 +1424,7 @@
         var cardId = 'pin_' + (++pinnedCardIdCounter);
         // Stack new cards with a small offset so multiple pins don't overlap
         var offset = pinnedCards[panel].length * 24;
-        var accent = colorarrays[(pinnedCards[panel].length) % colorarrays.length];
+        var accent = markerColors[(pinnedCards[panel].length) % markerColors.length];
 
         // Spawn the card where the hover tooltip was showing. The tooltip
         // position is stored in chart-container pixels; convert to layer
@@ -1712,7 +1726,7 @@
         function rebuildMarkers(chart, panelNum) {
             var markers = markerPositions[panelNum] || [];
             var dataEntries = markers.map(function (m, idx) {
-                var markerColor = colorarrays[idx % colorarrays.length];
+                var markerColor = markerColors[idx % markerColors.length];
                 return {
                     markerId: m.id,
                     xAxis: m.xAxis,
