@@ -708,20 +708,19 @@
                        '#dbdb8dff', // light yellow-green
                        '#9edae5ff'  // light blue-teal
     ];
-    // Marker/pinned-card accent palette — a wide ramp from black through
-    // grays into deep purple and blue, with large strides between shades so
-    // consecutive markers are easy to tell apart. Kept on the darker/deep
-    // side so this annotation layer reads separately from the muted data bars.
-    var markerColors = ['#000000', // black
-                        '#bfbfbf', // light gray
-                        '#404040', // dark gray
-                        '#7f7f7f', // medium gray
-                        '#4b0082', // indigo / deep purple
-                        '#1a237e', // deep blue
-                        '#6a1b9a', // purple
-                        '#0d47a1', // navy blue
-                        '#5e35b1', // violet
-                        '#1565c0'  // strong blue
+    // Marker/pinned-card accent palette — bright, saturated colors with large
+    // strides between shades so consecutive markers are easy to tell apart and
+    // contrast strongly against the muted data-bar palette.
+    var markerColors = ['#ff1744', // bright red
+                        '#00e676', // bright green
+                        '#ffea00', // bright yellow
+                        '#2979ff', // bright blue
+                        '#ff9100', // bright orange
+                        '#d500f9', // bright magenta/pink
+                        '#00e5ff', // bright cyan
+                        '#76ff03', // bright lime
+                        '#ff6e40', // bright coral
+                        '#651fff'  // bright purple
     ];
     var CurMetricSelectList = []
     var CurMetricSelectList2 = []
@@ -1461,6 +1460,42 @@
         }
     }
 
+    // Build a hover-style snapshot from a raw sample index (used by double-click
+    // to pin, which has no active hover tooltip). Mirrors the tooltip formatter.
+    // If filterGroup is given, only that metric group's series are included
+    // (so a double-click on a specific bar pins just that bar's metric).
+    function buildSnapshotForSample(panel, dataIndex, filterGroup) {
+        var chart = getPanelChart(panel);
+        if (!chart) return null;
+        var option = chart.getOption();
+        var series = option.series || [];
+        var targetTimeLine = panel === 2 ? TimeLine2 : TimeLine;
+        var targetTimeNames = panel === 2 ? TimeNames2 : TimeNames;
+        var groups = [];
+        var snap = {
+            dataIndex: dataIndex,
+            time: (targetTimeLine && dataIndex >= 0 && dataIndex < targetTimeLine.length) ? targetTimeLine[dataIndex] : dataIndex,
+            timeName: (targetTimeNames && dataIndex >= 0 && dataIndex < targetTimeNames.length) ? (targetTimeNames[dataIndex] || '') : '',
+            groupName: '',
+            values: {}
+        };
+        for (var i = 0; i < series.length; i++) {
+            var sid = series[i].id || '';
+            var parts = sid.split('&');
+            if (parts.length < 2) continue;
+            var g = parts[0];
+            var sig = parts[1];
+            // When a filter group is requested, skip series from other groups.
+            if (filterGroup && g !== filterGroup) continue;
+            if (groups.indexOf(g) === -1) groups.push(g);
+            var val = series[i].data ? series[i].data[dataIndex] : undefined;
+            var col = (series[i].areaStyle && series[i].areaStyle.color) ? series[i].areaStyle.color : '#888';
+            snap.values[sig] = { value: val, color: col };
+        }
+        snap.groupName = groups.join(', ');
+        return snap;
+    }
+
     // Freeze the currently hovered sample for the given panel into a draggable
     // card that stays on screen. Also drops a linked ECharts marker on the sample.
     function pinCurrentSample(panel) {
@@ -1469,6 +1504,12 @@
             console.log('No hover snapshot to pin');
             return;
         }
+        pinSnapshot(panel, snap);
+    }
+
+    // Shared pin core: drop a linked marker + spawn a draggable card for `snap`.
+    // The card is spawned at the hover tooltip's position.
+    function pinSnapshot(panel, snap) {
         var chart = getPanelChart(panel);
         if (!chart) return;
 
@@ -1488,26 +1529,25 @@
         var offset = 0;
         var accent = markerColors[(pinnedCards[panel].length) % markerColors.length];
 
-        // Spawn the card exactly where the hover tooltip is showing. Read the
-        // tooltip's live rendered rect (its className is 'mv-tooltip') so we
-        // get the true viewport top-left, then hideTip() removes the tooltip
-        // and leaves the card in its place.
+        // Spawn the card exactly where the hover tooltip is/was showing. Prefer
+        // the tooltip's live rendered rect; fall back to the last tooltip
+        // position captured by the tooltip's position() callback (reliable for
+        // double-click, where the tooltip may already be hidden).
         var chartDom = panel === 2 ? dom2 : dom;
         var startLeft = 24;
         var startTop = 24;
         var tipEl = chartDom ? chartDom.querySelector('.mv-tooltip') : null;
+        var usedTipRect = false;
         if (tipEl) {
             var tr = tipEl.getBoundingClientRect();
             // Only use the tooltip rect if it's actually visible
             if (tr.width > 0 && tr.height > 0) {
                 startLeft = tr.left;
                 startTop = tr.top;
-            } else if (lastTooltipPos[panel] && chartDom) {
-                var rect = chartDom.getBoundingClientRect();
-                startLeft = rect.left + lastTooltipPos[panel].x;
-                startTop = rect.top + lastTooltipPos[panel].y;
+                usedTipRect = true;
             }
-        } else if (lastTooltipPos[panel] && chartDom) {
+        }
+        if (!usedTipRect && lastTooltipPos[panel] && chartDom) {
             var rect = chartDom.getBoundingClientRect();
             startLeft = rect.left + lastTooltipPos[panel].x;
             startTop = rect.top + lastTooltipPos[panel].y;
@@ -1927,11 +1967,34 @@
             if (xAxis === undefined)
                 xAxis = -1;
 
-            // Add this position to the marker array
-            markerPositions[panelNum].push({ id: genMarkerId(), xAxis: xAxis });
-
-            // Add marker to chart
-            addMarkerAtPosition(chart, panelNum, xAxis);
+            // Double-click acts like the pin button: drop a marker AND spawn a
+            // pinned card for this sample (pinSnapshot adds the marker itself).
+            // Determine which metric group (grid) was clicked from the Y
+            // position so the card shows only that bar's metric(s).
+            var optZ = chart.getOption();
+            var grids = optZ.grid || [];
+            var clickedGroup = null;
+            var czY = param.offsetY;
+            var zHeight = chart.getZr().getHeight() || chart.getZr().dom.clientHeight;
+            for (var gi = 0; gi < grids.length; gi++) {
+                var gd = grids[gi];
+                var gTop = gd.top;
+                var gH = gd.height;
+                if (typeof gTop === 'string' && gTop.endsWith('%')) gTop = (parseFloat(gTop) / 100) * zHeight;
+                if (typeof gH === 'string' && gH.endsWith('%')) gH = (parseFloat(gH) / 100) * zHeight;
+                if (czY >= gTop && czY <= gTop + gH) {
+                    clickedGroup = gd.id || null;
+                    break;
+                }
+            }
+            var snap = buildSnapshotForSample(panelNum, xAxis, clickedGroup);
+            if (snap) {
+                pinSnapshot(panelNum, snap);
+            } else {
+                // Fallback: marker only, no card
+                markerPositions[panelNum].push({ id: genMarkerId(), xAxis: xAxis });
+                addMarkerAtPosition(chart, panelNum, xAxis);
+            }
         });
 
         // Right-click to remove last marker
@@ -2106,6 +2169,7 @@
                         var boxWidth = size.contentSize[0];
                         var boxHeight = size.contentSize[1];
                         var gap = 5; // offset of the tooltip from the mouse pointer
+                        var gap_hight = 15; // offset of the tooltip from the mouse pointer
                         var posX = 0;
                         var posY = 0;
 
@@ -2118,10 +2182,10 @@
                         }
                         // Y: place below the pointer (+gap) when it fits, otherwise
                         // flip above (-gap).
-                        if (point[1] + boxHeight + gap <= viewHeight) {
-                            posY = point[1] + gap;
+                        if (point[1] + boxHeight + gap_hight <= viewHeight) {
+                            posY = point[1] + gap_hight;
                         } else {
-                            posY = point[1] - boxHeight - gap;
+                            posY = point[1] - boxHeight - gap_hight;
                         }
 
                         // Remember the tooltip's position (pixels relative to the
