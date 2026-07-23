@@ -216,6 +216,43 @@
             text-overflow: ellipsis;
         }
 
+        /* Hover-tooltip title bar (mirrors the pinned-card header) */
+        .ht-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            background: #eee;
+            border-bottom: 1px solid #ccc;
+            white-space: nowrap;
+        }
+
+        .ht-pin {
+            cursor: pointer;
+            color: #999;
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .ht-time {
+            font-weight: bold;
+            color: #333;
+            flex-shrink: 0;
+        }
+
+        .ht-group {
+            color: #444;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: auto;
+        }
+
+        .ht-body {
+            padding: 5px 8px;
+            line-height: 1.4;
+        }
+
         /* Background ink watermark */
         body::after {
             content: "ArchToy";
@@ -1993,6 +2030,8 @@
                     triggerOn: "mousemove|click",
                     enterable: true,
                     hideDelay: 200,
+                    padding: 0,
+                    extraCssText: "font-size: 80%;",
                     order: "valueDesc",
                     position: function (point, params, dom, rect, size) {
                         var viewWidth = size.viewSize[0];
@@ -2020,54 +2059,64 @@
                         var ndata = data.sort((a, b) => {
                             return b.value - a.value;
                         });
-                        // Pin icon at the top-left corner: freezes this sample's
-                        // reading into a draggable card. stopPropagation prevents
-                        // the click from being treated as a chart click.
-                        // Diagonal rotation (45deg) signals the "click to pin" action.
-                        let str = '<span style="float:left;cursor:pointer;color:#999;padding:0 6px 0 0;" '
-                            + 'onclick="event.stopPropagation(); pinCurrentSample(' + panel + ')" '
-                            + 'title="Pin this sample">' + makePinIcon(45) + '</span>';
-                        var hoverTimeName = targetTimeNames[ndata[0].dataIndex];
-                        str += 'Time: ' + ndata[0].axisValue + ', ' + (hoverTimeName || '');
                         var option = targetChart.getOption();
 
+                        // Collect unique group names across the hovered series
+                        // (axis trigger merges all series at this sample).
+                        var groups = [];
                         // Capture a snapshot of the currently hovered sample so the
-                        // Pin button below can freeze it into a persistent card.
+                        // Pin icon can freeze it into a persistent card.
                         var snap = {
                             dataIndex: ndata[0].dataIndex,
                             time: ndata[0].axisValue,
                             timeName: targetTimeNames[ndata[0].dataIndex] || '',
-                            groupName: ndata[0].seriesId.split('&')[0],
+                            groupName: '',
                             values: {}
                         };
                         for (var i = 0; i < ndata.length; i++) {
+                            var g = ndata[i].seriesId.split('&')[0];
+                            if (groups.indexOf(g) === -1) groups.push(g);
                             var sigName = ndata[i].seriesId.split('&')[1];
                             var sigColor = option['series'][ndata[i].seriesIndex]['areaStyle']['color'];
                             snap.values[sigName] = { value: ndata[i].value, color: sigColor };
                         }
+                        snap.groupName = groups.join(', ');
                         currentHoverSnapshot[panel] = snap;
 
+                        // --- Title bar: pin icon + Time + Group (matches pinned card) ---
+                        var timeText = 'Time: ' + ndata[0].axisValue + ', ' + (snap.timeName || '');
                         if (option['series'][ndata[0].seriesIndex]['stack'] != null) {
                             var sum = 0;
-                            for (var i = 0; i < data.length; i++) {
-                                sum += data[i].value;
-                            }
-                            str += ',' + sum;
+                            for (var i = 0; i < data.length; i++) sum += data[i].value;
+                            timeText += ',' + sum;
                         }
-                        str += '<br>';
+                        var pinHtml = '<span class="ht-pin" '
+                            + 'onclick="event.stopPropagation(); pinCurrentSample(' + panel + ')" '
+                            + 'title="Pin this sample">' + makePinIcon(45) + '</span>';
+                        var groupHtml = snap.groupName
+                            ? '<span class="ht-group"><b>Group: </b>' + snap.groupName + '</span>'
+                            : '';
+                        var header = '<div class="ht-header">' + pinHtml
+                            + '<span class="ht-time">' + timeText + '</span>'
+                            + groupHtml + '</div>';
+
+                        // --- Body: signal rows ---
+                        var bodyRows = '';
                         for (var i = 0; i < data.length; i++) {
-                            var name = ndata[i].seriesId.split('&')[1]
-                            let tmp_marker = option['series'][ndata[i].seriesIndex]['areaStyle']['color']
-                            str += ndata[i].marker.replace(ndata[i].color, tmp_marker);
+                            var name = ndata[i].seriesId.split('&')[1];
+                            let tmp_marker = option['series'][ndata[i].seriesIndex]['areaStyle']['color'];
+                            bodyRows += ndata[i].marker.replace(ndata[i].color, tmp_marker);
                             let tmp = name + ' : ' + ndata[i].value;
                             if (cur_series_index == ndata[i].seriesIndex && cur_data_index == ndata[i].dataIndex) {
-                                str += '<span style="background-color:#FF7F50;">' + tmp + '</span>';
+                                bodyRows += '<span style="background-color:#FF7F50;">' + tmp + '</span>';
                             } else {
-                                str += tmp;
+                                bodyRows += tmp;
                             }
-                            str += '<br>';
+                            bodyRows += '<br>';
                         }
-                        return str;
+                        var body = '<div class="ht-body">' + bodyRows + '</div>';
+
+                        return header + body;
                     },
                 },
                 dataZoom: [{
