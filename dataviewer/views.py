@@ -108,13 +108,18 @@ def api_show_upload(request):
     gl.set_value('config', now_config, secondary=secondary)
     gl.set_value('data', now_data, secondary=secondary)
     #print(now_data.index.to_list())
+    # 'names' is the per-sample event-label axis (one entry per time sample,
+    # '&'-joined if multiple events). The source data carries no event labels,
+    # so emit one empty string per sample — keeps names[dataIndex] in range
+    # and avoids 'undefined' in the tooltip. ('signal' holds the column names.)
+    sample_count = len(now_data.index)
     res = {
         'code': 0,
         'data': {
             'title': file.name,
             'config': now_config.to_dict(),
             'times': now_data.index.to_list(),
-            'names': now_data.columns.to_list(),
+            'names': [''] * sample_count,
             'signal': now_data.columns.to_list(),
         }
     }
@@ -174,13 +179,16 @@ def api_show_server_load(request):
     gl.set_value('config', now_config, secondary=secondary)
     gl.set_value('data', now_data, secondary=secondary)
 
+    # 'names' is the per-sample event-label axis (one entry per time sample).
+    # Source data carries no event labels, so emit one empty string per sample.
+    sample_count = len(now_data.index)
     res = {
         'code': 0,
         'data': {
             'title': title,
             'config': now_config.to_dict(),
             'times': now_data.index.to_list(),
-            'names': now_data.columns.to_list(),
+            'names': [''] * sample_count,
             'signal': now_data.columns.to_list(),
         }
     }

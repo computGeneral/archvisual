@@ -128,7 +128,7 @@
 
         /* Pinned metric info cards (persistent, draggable tooltip snapshots) */
         #pinnedCardsLayer {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             width: 100%;
@@ -155,9 +155,8 @@
 
         .pinned-card .pin-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             padding: 3px 6px;
             background: #eee;
             border-bottom: 1px solid #ccc;
@@ -167,9 +166,23 @@
         .pinned-card .pin-header .pin-time-inline {
             font-weight: bold;
             color: #333;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .pinned-card .pin-header .pin-status-icon {
+            color: #999;
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .pinned-card .pin-header .pin-group-inline {
+            color: #444;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            margin-right: auto;
         }
 
         .pinned-card .pin-header .pin-close {
@@ -1354,13 +1367,21 @@
     // Per-panel currently hovered sample (captured by the tooltip formatter)
     var currentHoverSnapshot = {}; // { panelNum: {dataIndex, time, timeName, values} }
 
+    // Per-panel last tooltip position (pixels relative to the chart container),
+    // used to spawn pinned cards where the hover tooltip was showing.
+    var lastTooltipPos = {};
+
     // Per-panel pinned cards: { panelNum: [{id, markerId, cardEl}, ...] }
     var pinnedCards = {};
     var pinnedCardIdCounter = 0;
 
-    // Gray pushpin icon (SVG so it can be recolored) rotated to point vertically.
-    var PIN_ICON_SVG = '<svg viewBox="0 0 16 16" width="13" height="13" style="display:inline-block;vertical-align:middle;transform:rotate(45deg)" aria-hidden="true">'
-        + '<path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .345-.148z"/></svg>';
+    // Gray pushpin icon (SVG so it can be recolored).
+    // rotation: degrees to rotate. Diagonal (45deg) = "click to pin" action
+    // (used in the hover tooltip); vertical (90deg) = "pinned" status (used on cards).
+    function makePinIcon(rotation) {
+        return '<svg viewBox="0 0 16 16" width="13" height="13" style="display:inline-block;vertical-align:middle;transform:rotate(' + rotation + 'deg)" aria-hidden="true">'
+            + '<path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .345-.148z"/></svg>';
+    }
 
     function getPanelChart(panel) {
         return panel === 2 ? myChart2 : myChart;
@@ -1391,30 +1412,52 @@
         var offset = pinnedCards[panel].length * 24;
         var accent = colorarrays[(pinnedCards[panel].length) % colorarrays.length];
 
+        // Spawn the card where the hover tooltip was showing. The tooltip
+        // position is stored in chart-container pixels; convert to layer
+        // (viewport) pixels via the chart container's bounding rect.
+        var chartDom = panel === 2 ? dom2 : dom;
+        var startLeft = 24;
+        var startTop = 24;
+        if (lastTooltipPos[panel] && chartDom) {
+            var rect = chartDom.getBoundingClientRect();
+            startLeft = rect.left + lastTooltipPos[panel].x;
+            startTop = rect.top + lastTooltipPos[panel].y;
+        }
+        startLeft += offset;
+        startTop += offset;
+
         var card = document.createElement('div');
         card.className = 'pinned-card';
         card.id = cardId;
         card.dataset.panel = panel;
-        card.style.left = (24 + offset) + 'px';
-        card.style.top = (24 + offset) + 'px';
+        card.style.left = startLeft + 'px';
+        card.style.top = startTop + 'px';
         card.style.borderLeftColor = accent;
 
-        // Top row (drag handle): Time text on the left, vertical pin icon +
-        // close X grouped on the right — all on the same row.
+        // Top row (drag handle): pin icon at the far left, then Time + group
+        // name, with the close X on the right — all on the same row.
         var header = document.createElement('div');
         header.className = 'pin-header';
+
+        // Pin icon (-45deg) at the top-left, marks the "pinned" status
+        var pinIcon = document.createElement('span');
+        pinIcon.className = 'pin-status-icon';
+        pinIcon.innerHTML = makePinIcon(-45);
+
         var timeSpan = document.createElement('span');
         timeSpan.className = 'pin-time-inline';
-        timeSpan.innerText = 'Time : ' + snap.time + (snap.timeName ? (', ' + snap.timeName) : '');
+        timeSpan.innerText = 'Time: ' + snap.time + ', ' + (snap.timeName || '');
 
-        var rightGroup = document.createElement('span');
-        rightGroup.style.cssText = 'display:inline-flex;align-items:center;gap:2px;flex-shrink:0;';
-
-        // Vertical pin icon (display only, marks the card as pinned)
-        var pinIcon = document.createElement('span');
-        pinIcon.style.cssText = 'color:#999;display:inline-flex;align-items:center;';
-        pinIcon.innerHTML = PIN_ICON_SVG;
-        rightGroup.appendChild(pinIcon);
+        var groupSpan = document.createElement('span');
+        groupSpan.className = 'pin-group-inline';
+        if (snap.groupName) {
+            var groupLabel = document.createElement('b');
+            groupLabel.innerText = 'Group: ';
+            var groupName = document.createElement('span');
+            groupName.innerText = snap.groupName;
+            groupSpan.appendChild(groupLabel);
+            groupSpan.appendChild(groupName);
+        }
 
         var closeBtn = document.createElement('button');
         closeBtn.className = 'pin-close';
@@ -1423,10 +1466,11 @@
             e.stopPropagation();
             removePinnedCard(panel, cardId);
         };
-        rightGroup.appendChild(closeBtn);
 
+        header.appendChild(pinIcon);
         header.appendChild(timeSpan);
-        header.appendChild(rightGroup);
+        header.appendChild(groupSpan);
+        header.appendChild(closeBtn);
         card.appendChild(header);
 
         // Body: each signal value with a leading color dot matching the chart legend
@@ -1932,19 +1976,27 @@
                             posX = point[0] - boxWidth;
                         }
 
+                        // Remember the tooltip's position (pixels relative to the
+                        // chart container) so a pinned card can spawn there.
+                        // Capture the values we return (dom.offsetLeft is stale
+                        // here because ECharts hasn't positioned the tooltip yet).
+                        lastTooltipPos[panel] = { x: posX, y: point[1] };
+
                         return [posX, point[1]];
                     },
                     formatter: function (data) {
                         var ndata = data.sort((a, b) => {
                             return b.value - a.value;
                         });
-                        // Pin icon at the top-right corner: freezes this sample's
+                        // Pin icon at the top-left corner: freezes this sample's
                         // reading into a draggable card. stopPropagation prevents
                         // the click from being treated as a chart click.
-                        let str = '<span style="float:right;cursor:pointer;color:#999;padding:0 6px;" '
+                        // Diagonal rotation (45deg) signals the "click to pin" action.
+                        let str = '<span style="float:left;cursor:pointer;color:#999;padding:0 6px 0 0;" '
                             + 'onclick="event.stopPropagation(); pinCurrentSample(' + panel + ')" '
-                            + 'title="Pin this sample">' + PIN_ICON_SVG + '</span>';
-                        str += 'Time : ' + ndata[0].axisValue + ',' + targetTimeNames[ndata[0].dataIndex];
+                            + 'title="Pin this sample">' + makePinIcon(45) + '</span>';
+                        var hoverTimeName = targetTimeNames[ndata[0].dataIndex];
+                        str += 'Time: ' + ndata[0].axisValue + ', ' + (hoverTimeName || '');
                         var option = targetChart.getOption();
 
                         // Capture a snapshot of the currently hovered sample so the
@@ -1952,7 +2004,8 @@
                         var snap = {
                             dataIndex: ndata[0].dataIndex,
                             time: ndata[0].axisValue,
-                            timeName: targetTimeNames[ndata[0].dataIndex],
+                            timeName: targetTimeNames[ndata[0].dataIndex] || '',
+                            groupName: ndata[0].seriesId.split('&')[0],
                             values: {}
                         };
                         for (var i = 0; i < ndata.length; i++) {
