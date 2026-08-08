@@ -121,8 +121,8 @@ def build_executable():
     
     app_name = "archvis"
     entry_point = f"{project_root}/archvisual.py"  # Django entry point
-    dist_path = os.path.join(project_root, "_output_/archvisual/output/")
-    build_path = os.path.join(project_root, "_output_/archvisual/build/")
+    dist_path = os.path.join(project_root, "__output__/output/")
+    build_path = os.path.join(project_root, "__output__/build/")
     build_temp_dir = os.path.join(build_path, "temp")
     
     # Clean existing directories
