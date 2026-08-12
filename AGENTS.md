@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Overview
 - This is a Django web app for architecture metric/trace visualization.
-- Main Django project: `archvisual/`
+- Main Django project: `visualizer/`
 - Main app: `dataviewer/`
 - Entry script: `archvisual.py`
 
@@ -19,8 +19,8 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - Tests: `python archvisual.py test`
 
 ## Code Map
-- Routing: `archvisual/urls.py`
-- Settings: `archvisual/settings.py`
+- Routing: `visualizer/urls.py`
+- Settings: `visualizer/settings.py`
 - View handlers and API endpoints: `dataviewer/views.py`
 - In-memory shared state for loaded datasets: `dataviewer/globalvar.py`
 - Frontend templates: `dataviewer/templates/*.html`

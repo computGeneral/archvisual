@@ -9,12 +9,12 @@
 # permitted to do so under the terms of a subsisting license agreement    
 # from computGene@gmail.com.                                                     
 # 
-# Filename        : ./visualizer/archvisual/urls.py
+# Filename        : ./visualizer/visualizer/urls.py
 # Last Revision   : 0.0.1
 # Author          : gene@computGeneral.com
 
 
-"""archvisual URL Configuration
+"""visualizer URL Configuration
 The `urlpatterns` list routes URLs to views. For more information please see:
     https://docs.djangoproject.com/en/3.2/topics/http/urls/
 Examples:

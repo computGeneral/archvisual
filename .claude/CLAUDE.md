@@ -16,7 +16,7 @@ ArchVisual is a Django-based visualization project for metric and trace data ana
 
 ```
 archvisual/
-├── archvisual/          # Django project configuration
+├── visualizer/          # Django project configuration
 ├── dataviewer/           # Main application
 │   ├── templates/         # HTML templates
 │   │   ├── metricviewer.html

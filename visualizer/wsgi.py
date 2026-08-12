@@ -1,4 +1,4 @@
-""/usr/bin/env python3"""
+"""/usr/bin/env python3"""
 # The confidential and proprietary information contained in this file may 
 # only be used by a person authorized under and to the extent permitted   
 # by a subsisting licensing agreement from computGene@gmail.com.                 
@@ -9,22 +9,23 @@
 # permitted to do so under the terms of a subsisting license agreement    
 # from computGene@gmail.com.                                                     
 # 
-# Filename        : ./visualizer/archvisual/asgi.py
+# Filename        : ./visualizer/visualizer/wsgi.py
 # Last Revision   : 0.0.1
 # Author          : gene@computGeneral.com
-"""
-ASGI config for archvisual project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
+"""
+WSGI config for visualizer project.
+
+It exposes the WSGI callable as a module-level variable named ``application``.
 
 For more information on this file, see
-https://docs.djangoproject.com/en/3.2/howto/deployment/asgi/
+https://docs.djangoproject.com/en/3.2/howto/deployment/wsgi/
 """
 
 import os
 
-from django.core.asgi import get_asgi_application
+from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'archvisual.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'visualizer.settings')
 
-application = get_asgi_application()
+application = get_wsgi_application()

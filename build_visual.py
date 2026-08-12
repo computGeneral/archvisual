@@ -56,9 +56,9 @@ def collect_data_files(project_root=None):
     
     # Include Django configuration files
     django_configs = [
-        (f'{project_root}/archvisual/settings.py', 'archvisual/settings.py'),
-        (f'{project_root}/archvisual/urls.py',     'archvisual/urls.py'),
-        (f'{project_root}/archvisual/wsgi.py',     'archvisual/wsgi.py'),
+        (f'{project_root}/visualizer/settings.py', 'visualizer/settings.py'),
+        (f'{project_root}/visualizer/urls.py',     'visualizer/urls.py'),
+        (f'{project_root}/visualizer/wsgi.py',     'visualizer/wsgi.py'),
     ]
     data_files.extend(django_configs)
     
@@ -119,7 +119,7 @@ def build_executable():
     project_root = str(os.path.dirname(os.path.abspath(__file__)))
     platform_cfg = get_platform_specifics()
     
-    app_name = "archvis"
+    app_name = "archvisual"
     entry_point = f"{project_root}/archvisual.py"  # Django entry point
     dist_path = os.path.join(project_root, "__output__/output/")
     build_path = os.path.join(project_root, "__output__/build/")
@@ -148,7 +148,7 @@ def build_executable():
         # Django-specific plugins and settings
         #"--enable-plugin=pylint-wtf",  # Useful for Django
         "--include-package=django",
-        "--include-package=archvisual",  # Your Django project
+        "--include-package=visualizer",  # Your Django project
         "--include-package=dataviewer",  # Your Django apps
         # Add more apps as needed
 
@@ -251,7 +251,7 @@ def build_executable():
         run_script_content = """#!/bin/bash
 # Run the Django application
 cd "$(dirname "$0")"
-./archvis runserver 0.0.0.0:8000
+./archvisual runserver 0.0.0.0:8000
 """
         with open(os.path.join(target_dir, "run_archvis.sh"), "w") as f:
             f.write(run_script_content)
@@ -259,7 +259,7 @@ cd "$(dirname "$0")"
         # On Windows, create a batch file too
         if platform.system().lower() == "windows":
             batch_content = """@echo off
-./archvis.exe runserver 0.0.0.0:8000
+./archvisual.exe runserver 0.0.0.0:8000
 pause
 """
             with open(os.path.join(target_dir, "run_archvis.bat"), "w") as f:
