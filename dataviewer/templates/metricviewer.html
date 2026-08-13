@@ -586,6 +586,13 @@
 
     // listen keyboard events
     document.addEventListener('keydown', function (event) {
+        // Skip shortcuts when typing in an input/textarea/editable element so
+        // keys like 'm'/'u'/'Delete' don't get swallowed by preventDefault().
+        var tag = (event.target && event.target.tagName) || '';
+        var isEditable = (tag === 'INPUT' || tag === 'TEXTAREA' ||
+                          (event.target && event.target.isContentEditable));
+        if (isEditable) return;
+
         var active = getActiveChart();
         if (event.key === 'x') {
             window.SyncToTraceView();
