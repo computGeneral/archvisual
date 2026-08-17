@@ -1,4 +1,4 @@
-blosc2==2.0.0
+blosc2==2.3.0
 django==4.2.23
 django-cors-headers==4.4.0
 numexpr==2.8.6
