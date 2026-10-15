@@ -9,13 +9,21 @@
 
 set -euo pipefail
 
-# Resolve repo root (script location) so it runs from anywhere.
+# Resolve roots from the script location so it runs from anywhere.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${PROJECT_ROOT}/.." && pwd -P)"
+source "${REPO_ROOT}/scripts/shared_env.sh"
+archexplor_use_workspace_python || exit 1
+archexplor_hold_workspace_python || exit $?
+archexplor_configure_output_environment
 cd "$PROJECT_ROOT"
 
 VERSION_FILE="$PROJECT_ROOT/version.txt"
-OUTPUT_DIR="$PROJECT_ROOT/__output__/output"
+OUTPUT_DIR="$(archexplor_require_output_path \
+    "${ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR:-${REPO_ROOT}/__output__/archvisual/output}" \
+    "archvisual release output")"
 BINARY_DIR="$OUTPUT_DIR/archvisual"
+export ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT="$(dirname "$OUTPUT_DIR")"
 
 # ---------------------------------------------------------------------------
 # 1. Validate argument
@@ -68,10 +76,10 @@ echo "Bumping version: ${RAW} -> ${NEW_VERSION}"
 printf '%s\n' "$NEW_VERSION" > "$VERSION_FILE"
 
 # ---------------------------------------------------------------------------
-# 5. Run build_visual.py (rebuilds __output__/output/archvisual/)
+# 5. Run build_visual.py (rebuilds __output__/archvisual/output/archvisual/)
 # ---------------------------------------------------------------------------
 echo "=== Running build_visual.py ==="
-python3 "$PROJECT_ROOT/build_visual.py"
+"${ARCHEXPLOR_PYTHON_BIN}" "$PROJECT_ROOT/build_visual.py"
 
 if [[ ! -d "$BINARY_DIR" ]]; then
     echo "ERROR: build output dir not found: $BINARY_DIR" >&2

@@ -4,24 +4,26 @@ A web-based visualization tool for exploring and analyzing architectural data us
 
 ## Requirements
 
-- Python 3.8 or higher
+- Workspace Python 3.10.12 at repo-root `.venv/bin/python`
 - pip (Python package manager)
 
 ## Installation
 
 ### Step 1: Install Python Dependencies
 
-Use pip to install all required packages:
+From the repository root, explicitly prepare and check the shared environment:
 
 ```bash
-pip install -r requirements.txt
+bash scripts/setup_workspace_python.sh --prepare
+bash scripts/setup_workspace_python.sh --check
 ```
 
-Or, if you prefer to use a specific mirror (e.g., Aliyun mirror in China):
-
-```bash
-pip install -r requirements.txt -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-```
+Root requirements include this module, perfmodel and ISAGEN. Do not install
+packages during a frozen candidate run or create a separate module venv.
+Build/run wrappers hold a task-lifetime Python environment read lock. For bare
+Django commands use the managed entry from repo root, for example:
+`.venv/bin/python -B scripts/workspace_python.py run -- .venv/bin/python -B archvisual/archvisual.py check`.
+The packaged application does not depend on a workspace-only guard.
 
 **Required packages:**
 - Django (4.2.23) - Web framework
@@ -35,7 +37,7 @@ pip install -r requirements.txt -i http://mirrors.aliyun.com/pypi/simple/ --trus
 ### Step 2: Verify Installation
 
 ```bash
-python -c "import django; import pandas; print('Installation successful!')"
+.venv/bin/python -B -c "import django; import pandas; print('Installation successful!')"
 ```
 
 ## Input Data Format
@@ -96,7 +98,7 @@ ArchVisual also supports **CSV (Comma-Separated Values)** files as an alternativ
 ### Starting the Server
 
 ```bash
-python archvisual.py runserver 0.0.0.0:8000
+bash ./run_visual.sh 8000
 ```
 
 Or use the provided shell script:

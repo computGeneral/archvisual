@@ -27,6 +27,12 @@ from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
 
 
+def _temporary_root():
+    path = settings.ARCHVISUAL_TEMP_ROOT
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def page_admin(request):
     return render(request, 'admin.html')
 
@@ -57,7 +63,8 @@ def api_show_upload(request):
     if not (file.name.endswith('.h5') or file.name.endswith('.csv')):
         return HttpResponse("File must be either HDF5(.h5) or CSV(.csv) format", status=400)
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
+        with tempfile.NamedTemporaryFile(
+                delete=False, suffix='.h5', dir=_temporary_root()) as tmp_file:
             if file.name.endswith('.csv'):
                 try:
                     firstline = file.readline().decode('utf-8')
@@ -151,7 +158,8 @@ def api_show_server_load(request):
     try:
         if file_path.endswith('.csv'):
             df = pd.read_csv(file_path, index_col=0)
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp:
+            with tempfile.NamedTemporaryFile(
+                    delete=False, suffix='.h5', dir=_temporary_root()) as tmp:
                 hdf = pd.HDFStore(tmp.name, mode='w', complevel=4, complib='blosc')
                 hdf.put('data', df.T, data_columns=True)
                 hdf.put('config', pd.Series({'ClockGHz': 1.8, 'SamplePeriod': 100}))

@@ -30,7 +30,13 @@ from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_ROOT=os.path.join(BASE_DIR, "__output__", "staticfiles")
+REPO_OUTPUT_ROOT = BASE_DIR.parent / "__output__" / "archvisual"
+STATIC_ROOT = os.environ.get(
+    "ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT",
+    str(REPO_OUTPUT_ROOT / "staticfiles"))
+ARCHVISUAL_TEMP_ROOT = os.environ.get(
+    "ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT",
+    str(REPO_OUTPUT_ROOT / "tmp"))
 
 
 # Quick-start development settings - unsuitable for production
