@@ -1,11 +1,11 @@
 #!/bin/bash
 # Release build script for the archvisual project.
 #
-# Bumps version.txt per the requested domain (maj|mid|min), runs build_visual.py,
-# copies version.txt into the built binary directory, and tars the result to
-# archvisual.<version>.tar.bz2.
+# Builds in isolation and validates a platform-tagged release archive before
+# atomically publishing it and updating version.txt. Existing releases survive
+# build/packaging failures.
 #
-# Usage: bash rel_visual.sh {maj|mid|mid|min}
+# Usage: bash rel_visual.sh {maj|mid|min}
 
 set -euo pipefail
 
@@ -19,11 +19,21 @@ archexplor_configure_output_environment
 cd "$PROJECT_ROOT"
 
 VERSION_FILE="$PROJECT_ROOT/version.txt"
-OUTPUT_DIR="$(archexplor_require_output_path \
-    "${ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR:-${REPO_ROOT}/__output__/archvisual/output}" \
+MODULE_OUTPUT="$(archexplor_require_output_path \
+    "${REPO_ROOT}/__output__/archvisual" "archvisual module output")"
+RELEASE_DIR="$(archexplor_require_output_path \
+    "${ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR:-${ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR:-${MODULE_OUTPUT}/releases}}" \
     "archvisual release output")"
-BINARY_DIR="$OUTPUT_DIR/archvisual"
-export ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT="$(dirname "$OUTPUT_DIR")"
+STAGING_ROOT="$(archexplor_require_output_path \
+    "${MODULE_OUTPUT}/.release-staging" "archvisual release staging")"
+case "$RELEASE_DIR" in
+    "$MODULE_OUTPUT/output"|"$MODULE_OUTPUT/output/"*|\
+    "$MODULE_OUTPUT/build"|"$MODULE_OUTPUT/build/"*|\
+    "$MODULE_OUTPUT/staticfiles"|"$MODULE_OUTPUT/staticfiles/"*|\
+    "$STAGING_ROOT"|"$STAGING_ROOT/"*)
+        echo "ERROR: releases must be outside cleaned build/staging directories: $RELEASE_DIR" >&2
+        exit 1 ;;
+esac
 
 # ---------------------------------------------------------------------------
 # 1. Validate argument
@@ -39,6 +49,15 @@ case "$ARG" in
         exit 1
         ;;
 esac
+
+# Serializes version reads and publication even when output overrides differ.
+# Lock ordering remains workspace Python shared lock -> module release lock.
+mkdir -p "$MODULE_OUTPUT" "$RELEASE_DIR" "$STAGING_ROOT"
+exec {release_lock_fd}>"$MODULE_OUTPUT/.release.lock"
+if ! flock -n "$release_lock_fd"; then
+    echo "ERROR: another ArchVisual release is running" >&2
+    exit 75
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Read + parse version.txt
@@ -62,46 +81,89 @@ MIN="${BASH_REMATCH[3]}"
 # 3. Bump per argument
 # ---------------------------------------------------------------------------
 case "$ARG" in
-    maj) MAJ=$((MAJ + 1)); MID=0; MIN=0 ;;
-    mid) MID=$((MID + 1)); MIN=0 ;;
-    min) MIN=$((MIN + 1)) ;;
+    maj) MAJ=$((10#$MAJ + 1)); MID=0; MIN=0 ;;
+    mid) MID=$((10#$MID + 1)); MIN=0 ;;
+    min) MIN=$((10#$MIN + 1)) ;;
 esac
 
 NEW_VERSION="${MAJ}.${MID}.${MIN}"
-echo "Bumping version: ${RAW} -> ${NEW_VERSION}"
+echo "Candidate version: ${RAW} -> ${NEW_VERSION}"
 
 # ---------------------------------------------------------------------------
-# 4. Write new version back to version.txt (with trailing newline)
+# 4. Prepare an isolated build and a candidate version; keep version.txt intact.
 # ---------------------------------------------------------------------------
-printf '%s\n' "$NEW_VERSION" > "$VERSION_FILE"
+STAGE_DIR="$(mktemp -d "$STAGING_ROOT/release.XXXXXX")"
+ARCHIVE_TEMP=""
+cleanup() {
+    local release_status=$?
+    trap - EXIT
+    if [[ -n "$ARCHIVE_TEMP" ]] && ! rm -f -- "$ARCHIVE_TEMP"; then
+        echo "WARNING: could not remove temporary archive: $ARCHIVE_TEMP" >&2
+    fi
+    if [[ -f "$STAGE_DIR/KEEP_FOR_RECOVERY" ]]; then
+        echo "ERROR: recovery artifacts retained at $STAGE_DIR" >&2
+    elif ! rm -rf -- "$STAGE_DIR"; then
+        echo "WARNING: could not remove build staging directory: $STAGE_DIR" >&2
+    fi
+    exit "$release_status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+cp -p "$VERSION_FILE" "$STAGE_DIR/version.original"
+cp -p "$VERSION_FILE" "$STAGE_DIR/version.candidate"
+printf '%s\n' "$NEW_VERSION" > "$STAGE_DIR/version.candidate"
+export ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT="$STAGE_DIR"
+BINARY_DIR="$STAGE_DIR/output/archvisual"
+PLATFORM_INFO="$("${ARCHEXPLOR_PYTHON_BIN}" -B -c \
+    'from release_tools import platform_tags; print(*platform_tags())')"
+read -r OS_TAG ARCH_TAG EXECUTABLE_NAME <<< "$PLATFORM_INFO"
 
 # ---------------------------------------------------------------------------
-# 5. Run build_visual.py (rebuilds __output__/archvisual/output/archvisual/)
+# 5. Run build_visual.py inside this release's private output root.
 # ---------------------------------------------------------------------------
 echo "=== Running build_visual.py ==="
 "${ARCHEXPLOR_PYTHON_BIN}" "$PROJECT_ROOT/build_visual.py"
 
-if [[ ! -d "$BINARY_DIR" ]]; then
-    echo "ERROR: build output dir not found: $BINARY_DIR" >&2
+if [[ ! -s "$BINARY_DIR/$EXECUTABLE_NAME" ]]; then
+    echo "ERROR: build executable not found or empty: $BINARY_DIR/$EXECUTABLE_NAME" >&2
+    exit 1
+fi
+if [[ "$OS_TAG" != windows && ! -x "$BINARY_DIR/$EXECUTABLE_NAME" ]]; then
+    echo "ERROR: build output is not executable: $BINARY_DIR/$EXECUTABLE_NAME" >&2
     exit 1
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Copy version.txt into the binary directory
+# 6. Give the package its candidate version without changing the source version.
 # ---------------------------------------------------------------------------
-cp "$VERSION_FILE" "$BINARY_DIR/version.txt"
-echo "Copied version.txt -> $BINARY_DIR/version.txt"
+cp "$STAGE_DIR/version.candidate" "$BINARY_DIR/version.txt"
 
 # ---------------------------------------------------------------------------
-# 7. Tar the binary dir to archvisual.<version>.tar.bz2
+# 7. Build a temporary archive beside its destination and verify all payloads.
 # ---------------------------------------------------------------------------
-TARBALL="$OUTPUT_DIR/archvisual.${NEW_VERSION}.tar.bz2"
+TARBALL="$RELEASE_DIR/archvisual.${NEW_VERSION}.${OS_TAG}.${ARCH_TAG}.tar.bz2"
 echo "=== Creating $TARBALL ==="
-rm -f "$TARBALL"
-tar -C "$OUTPUT_DIR" -cjf "$TARBALL" archvisual
+ARCHIVE_TEMP="$(mktemp "$RELEASE_DIR/.archvisual.${NEW_VERSION}.${OS_TAG}.${ARCH_TAG}.tmp.XXXXXX")"
+tar -C "$STAGE_DIR/output" -cjf "$ARCHIVE_TEMP" archvisual
+"${ARCHEXPLOR_PYTHON_BIN}" -B - "$ARCHIVE_TEMP" "$NEW_VERSION" "$EXECUTABLE_NAME" <<'PY'
+import sys
+from release_tools import verify_archive
+verify_archive(*sys.argv[1:])
+PY
+
+# 8. Publish atomically, then update the source version. On a publication error,
+# restore the original archive/version; no final pathname contains partial tar.
+"${ARCHEXPLOR_PYTHON_BIN}" -B - "$ARCHIVE_TEMP" "$TARBALL" \
+    "$STAGE_DIR/version.candidate" "$STAGE_DIR/version.original" "$VERSION_FILE" <<'PY'
+import sys
+from release_tools import publish_release
+publish_release(*sys.argv[1:])
+PY
 
 echo
 echo "=== Release complete ==="
 echo "  version : $NEW_VERSION"
-echo "  binary  : $BINARY_DIR"
+echo "  platform: $OS_TAG/$ARCH_TAG"
 echo "  tarball : $TARBALL"

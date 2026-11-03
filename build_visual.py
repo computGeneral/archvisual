@@ -250,7 +250,7 @@ def build_executable():
         workspace_python.managed_check_call(cmd, cwd=project_root)
     except subprocess.CalledProcessError as e:
         print(f"Build failed with error: {e}")
-        return
+        raise
     
     # Move and organize build artifacts
     entry_point_name = os.path.splitext(os.path.basename(entry_point))[0]
@@ -283,7 +283,7 @@ pause
             with open(os.path.join(target_dir, "run_archvis.bat"), "w") as f:
                 f.write(batch_content)
     else:
-        print("Error: Build artifacts not found")
+        raise FileNotFoundError(f"Build artifacts not found: {source_dir}")
 
 if __name__ == "__main__":
     try:

@@ -121,3 +121,39 @@ Or replace `localhost` with your server's IP address if running remotely.
 
 
 
+
+## Safe release packaging
+
+From the repository root, run `bash archvisual/rel_visual.sh min` (or `mid` /
+`maj`). The script uses the managed workspace Python and serializes releases
+with a project release lock. It builds inside a unique directory under
+`__output__/archvisual/.release-staging/`; regular standalone build outputs
+and existing release packages are kept separate.
+
+Validated packages are published under `__output__/archvisual/releases/` as
+`archvisual.<version>.<system>.<machine>.tar.bz2`, for example
+`archvisual.0.4.1.linux.x86_64.tar.bz2`. Source `version.txt` stays at its old
+value while building and validating. The temporary archive is atomically
+renamed into place, then the version is atomically updated. Publication errors
+restore the previous archive/version; a failed rollback retains recovery
+artifacts and reports their location. Cleanup failures after a completed
+publication are reported separately. Package permissions follow the current umask.
+
+`ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR` overrides the release destination within
+repo-root `__output__/`. The older `ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR` remains a
+fallback for safe destinations; locations inside cleaned output/build/static
+or release-staging directories are rejected. Existing packages are not moved
+automatically. `build_visual.py` retains its standalone output layout.
+
+The archive temporary file lives beside its final destination. Staged version
+files must share a filesystem with source `version.txt`; cross-filesystem
+copy fallback is deliberately avoided for atomic publication. This is a
+rollback protocol around two atomic file replacements, not a crash-durable
+multi-file transaction.
+
+Release failure-path tests use isolated repositories and injected build/tar
+failures; they do not compile Nuitka or publish a real release:
+
+```bash
+.venv/bin/python -B -m unittest discover -s archvisual -p test_release_visual.py -v
+```
