@@ -1867,8 +1867,9 @@
             setTimeout(function () {
                 repositionPinnedCardsForZoom(zchart, zpanel);
             }, 0);
-            // Auto-sync zoom to TraceViewer when sync checkbox is enabled
-            if ($('#sync').prop('checked')) {
+            // Sync user changes; received Trace ranges already carry this
+            // flag and must not echo a rounded sample range back to Trace.
+            if ($('#sync').prop('checked') && !event_params.disable_propagation) {
                 window.SyncToTraceView();
             }
         });

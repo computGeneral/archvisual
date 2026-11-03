@@ -122,6 +122,27 @@ Or replace `localhost` with your server's IP address if running remotely.
 
 
 
+## Metric / Trace keyboard synchronization
+
+In **Metric vs. Trace**, enable MetricViewer's **Sync** checkbox, then click
+inside the Trace timeline to focus its keyboard controls. `a` pans left and
+`d` / `e` pan right; `Shift+A` / `Shift+D` use the larger existing pan step.
+The Metric sample range follows the Trace pan. Turning Sync off keeps Metric
+independent. Received Trace updates do not echo a rounded Metric range back
+into a Trace zoom; user changes in Metric still synchronize to Trace.
+
+Keyboard synchronization is covered by a browser regression using actual
+key events, the example H5, and a minimal Catapult trace. It checks normal and
+high pixel density, rapid repeated panning, Sync off, and standalone Trace:
+
+```bash
+node archvisual/dataviewer/test_trace_metric_sync.cjs http://127.0.0.1:8000
+```
+
+`TRACE_SYNC_CHROME` selects Chrome; `TRACE_SYNC_TEST_OUTPUT` selects a report
+directory under the repository output tree. Playwright must be available to Node.
+The existing time conversion and Trace display padding remain unchanged.
+
 ## Safe release packaging
 
 From the repository root, run `bash archvisual/rel_visual.sh min` (or `mid` /
