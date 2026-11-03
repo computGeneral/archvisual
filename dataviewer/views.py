@@ -341,15 +341,37 @@ def api_show_server_file(request):
 #     return HttpResponse(json.dumps(res), content_type='application/json')
 
 
-def get_query_data(query_list, secondary=False) -> dict:
+def get_query_data(query_list, secondary=False, heat=False) -> dict:
     query_data = {}
-    exist_obj = gl.get_all(secondary=secondary)['data']
+    state = gl.get_all(secondary=secondary)
+    if heat and 'data' not in state:
+        raise ValueError('Load a metrics file before plotting')
+    exist_obj = state['data']
+    if heat and not isinstance(query_list, dict):
+        raise ValueError('Metric query must be an object')
     for key, sigs in query_list.items():
+        if heat and (not isinstance(sigs, dict) or
+                     not isinstance(sigs.get('Sig'), list) or
+                     not all(isinstance(sig, str) for sig in sigs['Sig'])):
+            raise ValueError('Each metric group must contain a Sig list of metric names')
         query_data[key] = {k: v for k, v in sigs.items() if k != 'Sig'}
         query_data[key]['Sig'] = {}
         for sig in sigs['Sig']:
+            if heat and sig not in exist_obj.columns:
+                raise ValueError(f'Metric not found: {sig}')
             if sig in exist_obj.columns:
-                query_data[key]['Sig'][sig] = [float(v) for v in exist_obj.loc[:, sig].values]
+                if heat:
+                    values = exist_obj.loc[:, sig]
+                    if not isinstance(values, pd.Series):
+                        raise ValueError(f'Metric name is duplicated in the file: {sig}')
+                    if (not pd.api.types.is_numeric_dtype(values.dtype) or
+                            pd.api.types.is_complex_dtype(values.dtype)):
+                        raise ValueError(f'Metric must contain real numeric values: {sig}')
+                    query_data[key]['Sig'][sig] = [
+                        float(v) if pd.notna(v) and np.isfinite(v) else None
+                        for v in values.values]
+                else:
+                    query_data[key]['Sig'][sig] = [float(v) for v in exist_obj.loc[:, sig].values]
 
     return query_data
 
@@ -360,9 +382,21 @@ def api_show_query(request):
         'code': 0,
     }
 
-    req_data = json.loads(request.body.decode())
+    try:
+        req_data = json.loads(request.body.decode())
+    except (ValueError, UnicodeDecodeError):
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'Invalid JSON query'}),
+                            content_type='application/json', status=400)
+    if not isinstance(req_data, dict) or 'query' not in req_data:
+        return HttpResponse(json.dumps({'code': 1, 'msg': 'Request must contain a metric query'}),
+                            content_type='application/json', status=400)
     secondary = req_data.get('secondary', False)
-    res['data'] = get_query_data(req_data['query'], secondary=secondary)
+    try:
+        res['data'] = get_query_data(req_data['query'], secondary=secondary,
+                                    heat=req_data.get('mode') == 'heat')
+    except ValueError as exc:
+        return HttpResponse(json.dumps({'code': 1, 'msg': str(exc)}),
+                            content_type='application/json', status=400)
 
     return HttpResponse(json.dumps(res), content_type='application/json')
 
@@ -389,7 +423,12 @@ def api_temp_import(request):
         for name in names:
             if name.startswith('#'):
                 json_data.pop(name)
-        res['data'] = get_query_data(json_data, secondary=secondary)
+        try:
+            res['data'] = get_query_data(json_data, secondary=secondary,
+                                        heat=req_data.get('mode') == 'heat')
+        except ValueError as exc:
+            return HttpResponse(json.dumps({'code': 1, 'msg': str(exc)}),
+                                content_type='application/json', status=400)
     else:
         res['code'] = 1
         res['msg'] = 'The metrics template file you specified is not existed'

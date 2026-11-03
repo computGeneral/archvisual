@@ -6,6 +6,7 @@
     <title>MetricViewer</title>
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
+    <script src="/static/js/metric_heat.js?v=12"></script>
     <link rel="icon" href="/static/image/metricviewer.ico" type="image/x-icon">
     <style type="text/css">
         * {
@@ -125,6 +126,47 @@
         body.embedded .footer {
             display: none !important;
         }
+
+        .heat-toolbar { flex:0 0 auto; display:flex; flex-direction:column; align-items:stretch;
+            gap:8px; padding:0; font:12px sans-serif; }
+        .heat-toolbar label { display:flex; align-items:center; justify-content:space-between;
+            gap:4px; white-space:nowrap; }
+        .heat-toolbar input, .heat-toolbar select { flex:0 0 100px; width:100px; min-width:100px;
+            padding:2px 4px; box-sizing:border-box; }
+        .heat-host { --heat-sidebar-width:180px; flex:1; min-width:0; min-height:200px; display:flex; flex-direction:column;
+            overflow:auto; scrollbar-gutter:stable; position:relative; contain:size layout; }
+        .heat-map { position:relative; flex:0 0 auto; min-width:calc(280px + var(--heat-sidebar-width)); display:grid;
+            grid-template-columns:minmax(280px,1fr) var(--heat-sidebar-width); grid-template-rows:minmax(0,1fr);
+            box-sizing:border-box; border-bottom:1px solid #cbd5df; margin-bottom:6px; }
+        .heat-map:last-child { margin-bottom:0; }
+        .heat-map-selected { outline:1px solid #8ab4f8; outline-offset:-1px; }
+        .heat-map-title { margin:0; overflow-wrap:anywhere; }
+        .heat-sidebar { grid-column:2; grid-row:1; min-width:0; min-height:0; display:flex;
+            flex-direction:column; gap:12px; padding:10px min(5px, max(0px, calc((var(--heat-sidebar-width) - 1px) / 2))); box-sizing:border-box;
+            overflow:auto; background:#edf2f7; border-left:1px solid #cbd5df; }
+        .heat-sidebar-collapsed .heat-sidebar { visibility:hidden; padding:0; border:0; overflow:hidden; }
+        .heat-description { flex:0 0 auto; padding-top:8px;
+            font:11px/1.5 sans-serif; color:#526274; border-top:1px solid #cbd5df; }
+        .heat-sidebar-resizer { position:absolute; top:0; bottom:0;
+            right:max(0px, calc(var(--heat-sidebar-width) - 4px)); z-index:2; width:8px; cursor:col-resize; touch-action:none; }
+        .heat-sidebar-resizer:hover, .heat-sidebar-resizer:focus-visible { background:rgba(80,130,190,.22); }
+        .heat-resizing, .heat-resizing * { cursor:col-resize !important; user-select:none !important; }
+        .heat-panel-status { flex:0 0 auto; padding:4px 8px; font:12px sans-serif; }
+        .heat-empty { padding:32px; text-align:center; color:#666; font:14px sans-serif; }
+        .heat-status { flex:0 0 auto; line-height:1.6; font:11px/1.6 sans-serif;
+            white-space:normal; overflow-wrap:anywhere; color:#405164; }
+        .heat-error { color:#a51212; background:#fff1f1; }
+        .heat-viewport { grid-column:1; grid-row:1; min-width:0; min-height:0; overflow:auto;
+            scrollbar-gutter:stable; contain:size layout; position:relative; background:transparent; }
+        .heat-spacer { position:relative; min-width:100%; min-height:100%; }
+        .heat-canvas { position:sticky; left:0; top:0; width:600px; height:320px; overflow:hidden; }
+
+        .metric-mode-select { position:relative; display:inline-block; }
+        .metric-mode-select select { appearance:none; -webkit-appearance:none;
+            height:21px; font-size:100%; padding-left:2px; padding-right:14px; }
+        .metric-mode-select::after { content:'▾'; position:absolute; right:3px; top:0;
+            height:21px; display:flex; align-items:center; pointer-events:none;
+            font-family:Arial,sans-serif; }
 
         /* Pinned metric info cards (persistent, draggable tooltip snapshots) */
         #pinnedCardsLayer {
@@ -304,6 +346,11 @@
                         <div id="splitOpt_vertical" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('vertical')">Split Vert</div>
                     </div>
                 </span>
+                <span class="metric-mode-select">
+                    <select id="metricMode" aria-label="Chart mode">
+                        <option value="line">Line</option><option value="heat">Heat</option>
+                    </select>
+                </span>
                 <span style="position: relative; display: inline-block;">
                     <button id="initBtn" type="button" onclick="toggleLoadMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load ▾</button>
                     <input type="file" id="fileInput" style="display: none;">
@@ -394,6 +441,14 @@
             -->
         </div>
     </div>
+    <template id="heatControlsTemplate">
+        <div class="heat-toolbar" role="group" aria-label="Heat controls">
+            <label>Color <select name="heatColor"><option value="raw">Shared raw scale</option><option value="row">Per-metric normalized</option></select></label>
+            <label>Min <input name="heatMin" type="number" step="any" placeholder="Auto"></label>
+            <label>Max <input name="heatMax" type="number" step="any" placeholder="Auto"></label>
+            <span class="heat-toolbar-hint">One cell = one sample · min/avg/max: all samples · avg: valid-sample mean · Gray = no valid data · Ctrl+wheel: horizontal zoom · Shift+wheel / scrollbars: pan · Wheel: scroll · Drag left border: resize/hide sidebar · Drag right edge: show hidden sidebar · Click a cell, then Delete: remove metric</span>
+        </div>
+    </template>
     <div class="content">
         <div id="splitContainer" class="split-container">
             <div id="panel1" class="split-panel" onclick="setActivePanel(1)">
@@ -422,6 +477,9 @@
 </body>
 
 <script>
+    var metricHeat = null;
+    var renderingLine = false;
+
     // Dual view state
     var isSplitView = false;
     var splitDirection = 'horizontal';
@@ -558,6 +616,7 @@
         }
         // Rebuild metric selection dropdown for the active panel
         rebuildMetricSelectDiv();
+        if (metricHeat) metricHeat.activate(panel);
     }
 
     // Get active chart and related variables
@@ -592,6 +651,10 @@
         var isEditable = (tag === 'INPUT' || tag === 'TEXTAREA' ||
                           (event.target && event.target.isContentEditable));
         if (isEditable) return;
+        if (metricHeat && metricHeat.isHeat(activePanel)) {
+            if (event.key === 'Delete') { event.preventDefault(); metricHeat.removeSelected(activePanel); }
+            return;
+        }
 
         var active = getActiveChart();
         if (event.key === 'x') {
@@ -898,6 +961,10 @@
     }
 
     function append_metrics(update_signal_data, panel = 1) {
+        if (!renderingLine && metricHeat && metricHeat.isHeat(panel)) {
+            metricHeat.append(update_signal_data, panel);
+            return;
+        }
         var isSecondary = panel === 2;
         var targetChart = isSecondary ? myChart2 : myChart;
         var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
@@ -1023,6 +1090,10 @@
     }
 
     function ZoomChange(event) {
+        if (metricHeat && metricHeat.isHeat(activePanel)) {
+            if (event.key === 'Enter' || event.keyCode === 13) metricHeat.zoomFromInputs(activePanel);
+            return;
+        }
         if (event.keyCode != "13") {
             return;
         }
@@ -1179,6 +1250,15 @@
     }
 
     function MetricSelectSubmit() {
+        if (metricHeat && metricHeat.isHeat(activePanel)) {
+            var selected = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
+            metricHeat.plot(selected.slice(), activePanel);
+            selected.length = 0;
+            document.getElementById('MetricSelectDiv').style.display = 'none';
+            rebuildMetricSelectDiv();
+            return;
+        }
+        var plotPanel = activePanel;
         //var merge_check = document.getElementById('Merge');
         //var stack_check = document.getElementById('Stack');
         var group_name = document.getElementById('filterMetricGroup').value;
@@ -1238,7 +1318,7 @@
             }),
             success: function (res) {
                 if (res.code === 0) {
-                    append_metrics(res.data, activePanel);
+                    append_metrics(res.data, plotPanel);
                     // Hide the metric selection dropdown after plotting
                     document.getElementById("MetricSelectDiv").style.display = "none";
                 } else {
@@ -1251,8 +1331,12 @@
         });
     }
 
-    function ClearAll() {
-        var isSecondary = activePanel === 2;
+    function ClearAll(panel = activePanel, forceLine = false) {
+        if (!forceLine && metricHeat && metricHeat.isHeat(panel)) {
+            metricHeat.clear(panel);
+            return;
+        }
+        var isSecondary = panel === 2;
         var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
         var targetChart = isSecondary ? myChart2 : myChart;
 
@@ -1262,10 +1346,10 @@
         }
         MetricSelectColor = {};
         // Clear markers for this panel
-        markerPositions[activePanel] = [];
+        markerPositions[panel] = [];
         // Clear pinned cards for this panel (series reset below wipes markers)
-        clearPinnedCardsForPanel(activePanel);
-        currentHoverSnapshot[activePanel] = null;
+        clearPinnedCardsForPanel(panel);
+        currentHoverSnapshot[panel] = null;
         option_update({
             dataZoom: [{
                 xAxisIndex: []
@@ -1283,7 +1367,24 @@
                 orient: "horizontal",
                 icon: "square",
             }
-        }, true, activePanel);
+        }, true, panel);
+    }
+
+    // Rebuild Line from queried raw values, including selections created in Heat.
+    function renderLineFromHeat(data, panel, range) {
+        if (!getPanelChart(panel)) return;
+        renderingLine = true;
+        try {
+            ClearAll(panel, true);
+            var nonempty = {};
+            Object.keys(data).forEach(function (group) {
+                if (Object.keys(data[group].Sig).length) nonempty[group] = data[group];
+            });
+            append_metrics(nonempty, panel);
+            if (range && range[1] >= range[0] && Object.keys(nonempty).length) {
+                getPanelChart(panel).dispatchAction({type:'dataZoom', startValue:range[0], endValue:range[1]});
+            }
+        } finally { renderingLine = false; }
     }
 
     // Function to update all existing series data without clearing them
@@ -1370,9 +1471,11 @@
     }
 
     function ExportTemplate(isExport) {
+        var templatePanel = activePanel;
         var template_name = document.getElementById('template_name').value;
         var isSecondary = activePanel === 2;
-        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+        var targetMetricSelectList = metricHeat && metricHeat.isHeat(templatePanel)
+            ? metricHeat.selection(templatePanel) : (isSecondary ? MetricSelectList2 : MetricSelectList);
 
         if (isExport) {
             $.ajax({
@@ -1399,11 +1502,12 @@
                 contentType: 'application/json;charset=utf-8',
                 data: JSON.stringify({
                     import: template_name,
-                    secondary: activePanel === 2
+                    secondary: templatePanel === 2,
+                    mode: metricHeat && metricHeat.isHeat(templatePanel) ? 'heat' : 'line'
                 }),
                 success: function (res) {
                     if (res.code === 0) {
-                        append_metrics(res.data, activePanel)
+                        append_metrics(res.data, templatePanel)
                     } else {
                         alert(res.msg);
                     }
@@ -1845,6 +1949,7 @@
         });
         chart.on('datazoom', function (event_params) {
             let zoom = chart.getModel().option.dataZoom[0];
+            if (!renderingLine && metricHeat) metricHeat.syncLineZoom(panelNum, zoom);
             window['zoom_start_' + panelNum] = zoom.start;
             window['zoom_end_' + panelNum] = zoom.end;
             window['zoom_start_val_' + panelNum] = timeLine[zoom.startValue];
@@ -2051,6 +2156,7 @@
 
     function ProcessH5(res, panel = 1){
         if (res.code === 0) {
+            var heatMeta = Object.assign({}, res.data, {times:res.data.times.slice()});
             var isSecondary = panel === 2;
             var targetTitle = isSecondary ? Title2 : Title;
             var targetDataInterval = isSecondary ? DataInterval2 : DataInterval;
@@ -2074,7 +2180,7 @@
             }
 
             if (isSecondary) {
-                DataInterval2 = res.data['config']['interval'];
+                DataInterval2 = res.data['config']['SamplePeriod'] || res.data['config']['interval'];
                 TimeLine2 = res.data['times'];
                 for (var i in TimeLine2) {
                     TimeLine2[i] = parseInt(TimeLine2[i]);
@@ -2084,7 +2190,7 @@
                 window.zoom_start_val2 = TimeLine2[0];
                 window.zoom_end_val2 = TimeLine2[TimeLine2.length - 1];
             } else {
-                DataInterval = res.data['config']['interval'];
+                DataInterval = res.data['config']['SamplePeriod'] || res.data['config']['interval'];
                 TimeLine = res.data['times'];
                 for (var i in TimeLine) {
                     TimeLine[i] = parseInt(TimeLine[i]);
@@ -2310,6 +2416,7 @@
                 series: [],
                 grid: [],
             };
+            targetChart.clear();
             targetChart.setOption(option);
 
             // Enable zoom selection mode by default (left mouse button drag for zoom)
@@ -2323,7 +2430,18 @@
             setupChartEvents(targetChart, panel, currentTimeLine, currentDataInterval, targetMetricSelectList, isSecondary ? lastClickedTarget2 : lastClickedTarget);
 
             // Rebuild metric selection dropdown for the active panel after loading file
-            rebuildMetricSelectDiv();
+            if (panel === activePanel) rebuildMetricSelectDiv();
+            if (metricHeat) metricHeat.datasetLoaded(heatMeta, panel);
+            if ((!metricHeat || !metricHeat.isHeat(panel)) && Object.keys(targetMetricSelectList).length) {
+                var query = JSON.parse(JSON.stringify(targetMetricSelectList));
+                $.ajax({url:'/api/show/query', type:'POST', contentType:'application/json',
+                    data:JSON.stringify({query:query, secondary:panel === 2}),
+                    success:function (result) {
+                        if (result.code === 0) renderLineFromHeat(result.data, panel);
+                        else alert(result.msg);
+                    }, error:function () { alert('Failed to reload selected metrics'); }
+                });
+            }
         } else {
             alert(res.msg);
         }
@@ -2389,6 +2507,29 @@
         zoom_input_end2 = document.getElementById('zoom_end');
         zoom_output_dur2 = document.getElementById('zoom_duration');
 
+        metricHeat = MetricHeat.install({
+            activatePanel:setActivePanel,
+            lineElement:function (panel) { return panel === 2 ? dom2 : dom; },
+            resizeLine:function (panel) { var chart = getPanelChart(panel); if (chart) chart.resize(); },
+            selection:function (panel) { return panel === 2 ? MetricSelectList2 : MetricSelectList; },
+            lineRange:function (panel, count) {
+                var chart = getPanelChart(panel), option = chart && chart.getOption();
+                var zoom = option && option.dataZoom;
+                var z = zoom && zoom[0] || {};
+                return [Math.max(0, z.startValue === undefined ? Math.round((count-1)*(z.start || 0)/100) : z.startValue),
+                    Math.min(count-1, z.endValue === undefined ? Math.round((count-1)*(z.end === undefined ? 100 : z.end)/100) : z.endValue)];
+            },
+            renderLine:renderLineFromHeat,
+            query:function (query, panel) {
+                return new Promise(function (resolve, reject) {
+                    $.ajax({url:'/api/show/query', type:'POST', contentType:'application/json',
+                        data:JSON.stringify({query:query, secondary:panel === 2, mode:'heat'}),
+                        success:function (res) { if (res.code === 0) resolve(res.data); else reject(new Error(res.msg)); },
+                        error:function (xhr) { reject(new Error(xhr.responseJSON && xhr.responseJSON.msg || 'Metric query failed')); }
+                    });
+                });
+            }
+        });
         // Initialize active panel state on page load
         setActivePanel(1);
 
@@ -2404,17 +2545,8 @@
             var fileInput = e.target;
             if (fileInput.files.length == 1) {
                 formData.append('file', fileInput.files[0]);
-                formData.append('secondary', activePanel === 2 ? 'true' : 'false');
-
-                var isSecondary = activePanel === 2;
-                var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
-
-                // Check if there are existing plotted metrics and save their configuration
-                var hasExistingMetrics = Object.keys(targetMetricSelectList).length > 0;
-                var savedMetricConfig = null;
-                if (hasExistingMetrics) {
-                    savedMetricConfig = JSON.parse(JSON.stringify(targetMetricSelectList));
-                }
+                var uploadPanel = activePanel;
+                formData.append('secondary', uploadPanel === 2 ? 'true' : 'false');
 
                 $.ajax({
                     url: '/api/show/upload',
@@ -2423,28 +2555,7 @@
                     processData: false,
                     contentType: false,
                     success: function (res) {
-                        ProcessH5(res, activePanel);
-                        // If there were existing metrics, re-query and update their data from new file
-                        if (hasExistingMetrics && savedMetricConfig) {
-                            $.ajax({
-                                url: '/api/show/query',
-                                type: 'POST',
-                                contentType: 'application/json;charset=utf-8',
-                                data: JSON.stringify({
-                                    query: savedMetricConfig,
-                                    secondary: isSecondary
-                                }),
-                                success: function (queryRes) {
-                                    if (queryRes.code === 0) {
-                                        // Update existing series data without clearing
-                                        updateAll(queryRes.data, activePanel);
-                                    }
-                                },
-                                error: function () {
-                                    alert('Failed to re-query metrics from new file...');
-                                }
-                            });
-                        }
+                        ProcessH5(res, uploadPanel);
                     },
                     error: function (xhr, status, error) {
                         alert('Upload failed:', error);
@@ -2598,6 +2709,7 @@
     }
 
     function loadServerFile() {
+        var loadPanel = activePanel;
         var filePath = document.getElementById('serverBrowserSelectedPath').value.trim();
         if (!filePath) {
             alert('Please select a server file to load');
@@ -2610,12 +2722,12 @@
             contentType: 'application/json;charset=utf-8',
             data: JSON.stringify({
                 path: filePath,
-                secondary: activePanel === 2
+                secondary: loadPanel === 2
             }),
             success: function (res) {
                 hideLoading();
                 if (res.code === 0) {
-                    ProcessH5(res, activePanel);
+                    ProcessH5(res, loadPanel);
                     hideServerBrowser();
                 } else {
                     alert(res.msg || 'Failed to load server file');
