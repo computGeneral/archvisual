@@ -78,12 +78,15 @@ class StandaloneEnvironmentTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.project / '.venv').exists())
         self.assertFalse((self.project / '.archvisual-python.lock').exists())
-        requirements = self.project / 'requirements.txt'
-        requirements.write_text(requirements.read_text().replace('django==4.2.23', 'django==0.0.0'))
+        requirements = self.project / environment.requirements_path().name
+        lines = requirements.read_text().splitlines()
+        requirements.write_text('\n'.join('django==0.0.0' if line.startswith('django=') else line
+                                          for line in lines) + '\n')
         result = subprocess.run([sys.executable, '-B', str(self.project / 'archvisual_env.py'), 'check'],
                                 env=self.env, text=True, capture_output=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('django: expected 0.0.0', result.stderr)
+        self.assertIn('django: expected ', result.stderr)
+        self.assertIn('0.0.0', result.stderr)
         self.assertFalse((self.project / '.venv').exists())
 
     def test_run_from_other_directory_preserves_arguments_and_environment_lock(self):
@@ -168,7 +171,25 @@ class OutputAndPreparationTests(unittest.TestCase):
         commands = [call.args[0] for call in calls.call_args_list]
         self.assertEqual(len(commands), 3)
         self.assertTrue(all(command[0] == str(environment.local_python()) for command in commands))
-        self.assertIn(str(self.project / 'requirements.txt'), commands[1])
+        self.assertIn(str(environment.requirements_path()), commands[1])
+
+    def test_prepare_creates_a_venv_that_can_import_the_standard_library(self):
+        check_call = subprocess.check_call
+
+        def check_without_external_dependencies(command, *args, **kwargs):
+            if command[1:3] == ['-B', '-c']:
+                return check_call(command, *args, **kwargs)  # Real production prefix/version probe.
+            if command[1:4] == ['-m', 'pip', 'install'] or command[-2:] == ['check', '--build']:
+                return 0  # This regression covers venv creation, not package downloads.
+            self.fail(f'Unexpected preparation command: {command}')
+
+        with mock.patch.object(environment, 'ENVIRONMENT_LOCK', self.project / '.archvisual-python.lock'), \
+                mock.patch.object(environment.subprocess, 'check_call', side_effect=check_without_external_dependencies):
+            environment.prepare_environment()  # Real EnvBuilder and its bundled ensurepip.
+        check_call([str(environment.local_python()), '-B', '-c',
+                    'import encodings,sys; from pathlib import Path; '
+                    'assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()',
+                    str(self.project / '.venv')])
 
     def test_prepare_rejects_an_interpreter_that_routes_to_another_environment(self):
         folder = self.project / '.venv'
@@ -184,6 +205,27 @@ class OutputAndPreparationTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 environment.prepare_environment()
         self.assertEqual(calls.call_count, 1)  # Fails the prefix probe before any pip invocation.
+
+
+class PythonCompatibilityTests(unittest.TestCase):
+    def test_supported_versions(self):
+        for version in ((3, 10), (3, 11)):
+            with self.subTest(version=version), mock.patch.object(environment.sys, 'version_info', version):
+                environment.check_python_version()
+
+    def test_unsupported_versions_are_rejected_before_environment_work(self):
+        for version in ((3, 8), (3, 9), (3, 12), (3, 13), (3, 99), (4, 0)):
+            with self.subTest(version=version), mock.patch.object(environment.sys, 'version_info', version):
+                with mock.patch.object(environment.venv.EnvBuilder, 'create') as create, \
+                        mock.patch.object(environment.subprocess, 'check_call') as install, \
+                        mock.patch.object(environment.metadata, 'version') as package_version:
+                    for action in (environment.check_python_version, environment.check_environment,
+                                   environment.prepare_environment):
+                        with self.assertRaisesRegex(RuntimeError, 'Python 3.10 or 3.11'):
+                            action()
+                    create.assert_not_called()
+                    install.assert_not_called()
+                    package_version.assert_not_called()
 
 
 if __name__ == '__main__':

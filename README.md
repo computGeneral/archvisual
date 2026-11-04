@@ -4,7 +4,7 @@ A web-based visualization tool for exploring and analyzing architectural data us
 
 ## Requirements
 
-- Python 3.10 (validated with 3.10.12) and pip
+- Python 3.10 or 3.11 and pip (Python 3.12 and newer are not supported)
 - Bash and flock for the shell wrappers; tar for release packaging
 
 ## Installation and environment
@@ -13,13 +13,19 @@ ArchVisual is an independent repository. Run the following from its own root;
 no ArcheXplor checkout, parent scripts or parent Python environment are needed.
 
 ```bash
-bash scripts/setup_python.sh --prepare --python python3.10
+bash scripts/setup_python.sh --prepare --python python3
 bash scripts/setup_python.sh --check --build
 bash run_visual.sh 8000
 ```
 
-Preparation creates or updates only this repository's `.venv` using its own
-`requirements.txt`. It refuses a symlinked `.venv`. Installation is explicit:
+Preparation creates or updates only this repository's `.venv`. Python 3.10/3.11
+use the fixed versions in `requirements.txt`. Preparation and environment
+checks reject Python 3.12 and newer before creating a venv or installing packages.
+Preparation refuses a symlinked `.venv` or an existing venv with a different
+Python minor version, before any pip invocation. It does not delete or replace
+that environment. To change versions, move the old `.venv` aside explicitly
+or prepare a separate checkout with the intended `--python` interpreter.
+Installation is explicit:
 checking, running and building never install packages. Build checks also verify
 Nuitka; runtime checks verify the remaining pinned packages and their imports.
 
@@ -58,9 +64,14 @@ Existing `ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT`, `ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT
 and `ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT` remain aliases; the corresponding
 `ARCHVISUAL_*` variable takes precedence. No parent helper is imported.
 
-Pinned dependencies are maintained in `requirements.txt`: Django 4.2.23,
+Dependency pins in `requirements.txt` are Django 4.2.23,
 django-cors-headers 4.4.0, pandas 2.0.3, numpy 1.24.4, numexpr 2.8.6,
-blosc2 2.3.0, tables 3.10.1 and Nuitka 4.0.3.
+blosc2 2.3.0, tables 3.10.1 and Nuitka 4.0.3. Runtime/build checks enforce
+these pins and actual imports, without silently upgrading dependencies.
+
+Python 3.10.12 has been exercised on Linux x86_64. Python 3.11 is admitted
+but has not yet been validated here. Nuitka application compilation was not
+performed.
 
 ## Input Data Format
 

@@ -15,13 +15,13 @@ case "$action" in
         if [[ "${1:-}" == --python && $# == 2 ]]; then
             bootstrap="$2"
         elif (( $# != 0 )); then
-            echo 'Usage: setup_python.sh --prepare [--python python3.10]' >&2
+            echo 'Usage: setup_python.sh --prepare [--python python3] (Python 3.10 or 3.11)' >&2
             exit 2
         fi
         exec "$bootstrap" -B "$ARCHVISUAL_PROJECT_ROOT/archvisual_env.py" prepare
         ;;
     *)
-        echo 'Usage: setup_python.sh --prepare [--python python3.10] | --check [--build]' >&2
+        echo 'Usage: setup_python.sh --prepare [--python python3] | --check [--build] (Python 3.10 or 3.11)' >&2
         exit 2
         ;;
 esac

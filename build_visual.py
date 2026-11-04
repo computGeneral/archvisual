@@ -74,7 +74,7 @@ def check_python_source():
             print("FATAL: You are using Apple's system Python which is not compatible with Nuitka")
             print("Solution: Please install Python from https://www.python.org/downloads/macos/")
             print("Then create a virtual environment with the downloaded Python:")
-            print("   bash scripts/setup_python.sh --prepare --python /path/to/python3.10")
+            print("   bash scripts/setup_python.sh --prepare --python /path/to/python3")
             print("   use ArchVisual's own .venv/bin/python")
             print("Then run this build script again.")
             print("=" * 80 + "\n")

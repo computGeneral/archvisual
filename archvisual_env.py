@@ -1,4 +1,4 @@
-"""ArchVisual's local Python environment and output paths (standard library only)."""
+"""ArchVisual's local environment; bootstrap and paths use only the standard library."""
 import argparse
 from contextlib import contextmanager
 from importlib import import_module, metadata
@@ -11,6 +11,8 @@ import venv
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENVIRONMENT_LOCK = PROJECT_ROOT / '.archvisual-python.lock'
+MIN_PYTHON = (3, 10)
+MAX_PYTHON = (3, 12)  # Exclusive.
 
 
 def local_python():
@@ -18,8 +20,12 @@ def local_python():
 
 
 def check_python_version():
-    if sys.version_info[:2] != (3, 10):
-        raise RuntimeError('ArchVisual requires Python 3.10; prepare with --python python3.10')
+    if not MIN_PYTHON <= sys.version_info[:2] < MAX_PYTHON:
+        raise RuntimeError('ArchVisual requires Python 3.10 or 3.11; select a supported interpreter with --python')
+
+
+def requirements_path():
+    return PROJECT_ROOT / 'requirements.txt'
 
 
 def check_environment(build=False):
@@ -28,8 +34,9 @@ def check_environment(build=False):
     modules = {'django': 'django', 'django-cors-headers': 'corsheaders',
                'pandas': 'pandas', 'numpy': 'numpy', 'numexpr': 'numexpr',
                'blosc2': 'blosc2', 'tables': 'tables'}
+    requirements = requirements_path()
     errors = []
-    for line in (PROJECT_ROOT / 'requirements.txt').read_text().splitlines():
+    for line in requirements.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith('#'):
             continue
@@ -45,7 +52,7 @@ def check_environment(build=False):
         except (metadata.PackageNotFoundError, ImportError, OSError, ValueError) as error:
             errors.append(f'{name}: {error}')
     if errors:
-        raise RuntimeError('Python environment is not ready:\n  ' + '\n  '.join(errors)
+        raise RuntimeError(f'Python environment is not ready ({requirements.name}):\n  ' + '\n  '.join(errors)
                            + '\nRun bash scripts/setup_python.sh --prepare explicitly.')
 
 
@@ -135,18 +142,22 @@ def prepare_environment():
         raise ValueError('refusing to prepare a symlinked .venv; only the local environment is managed')
     with environment_lock(exclusive=True):
         if not directory.exists():
-            venv.EnvBuilder(with_pip=True).create(directory)
+            # Match `python -m venv` on POSIX. Copies lose stdlib discovery for
+            # relocatable interpreters invoked through a launcher symlink (uv).
+            venv.EnvBuilder(with_pip=True, symlinks=os.name != 'nt').create(directory)
         if not (directory / 'pyvenv.cfg').is_file():
             raise ValueError(f'{directory} is not a virtual environment')
         python = str(local_python())  # Preserve the venv entry; never resolve its symlink.
         subprocess.check_call([python, '-B', '-c',
                                'import sys; from pathlib import Path; '
-                               'assert sys.version_info[:2] == (3, 10), "Python 3.10 required"; '
+                               f'assert {MIN_PYTHON!r} <= sys.version_info[:2] < {MAX_PYTHON!r}, "Python 3.10 or 3.11 required"; '
                                'assert sys.prefix != sys.base_prefix and '
                                'Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve(), '
-                               '"refusing to install into an environment outside ArchVisual .venv"',
+                               '"refusing to install into an environment outside ArchVisual .venv"; '
+                               f'assert sys.version_info[:2] == {sys.version_info[:2]!r}, '
+                               '"existing .venv uses a different Python version; prepare a separate checkout or move it aside explicitly"',
                                str(directory)])
-        subprocess.check_call([python, '-m', 'pip', 'install', '-r', str(PROJECT_ROOT / 'requirements.txt')])
+        subprocess.check_call([python, '-m', 'pip', 'install', '-r', str(requirements_path())])
         subprocess.check_call([python, '-B', str(Path(__file__)), 'check', '--build'])
 
 
@@ -159,7 +170,7 @@ def main():
         prepare_environment()
     elif args.action == 'check':
         check_environment(build=args.build)
-        print(f'ArchVisual Python ready: {sys.executable}')
+        print(f'ArchVisual Python ready: {sys.executable} ({requirements_path().name})')
     else:
         paths = {'ARCHVISUAL_OUTPUT_ROOT': output_root(), 'ARCHVISUAL_STATIC_ROOT': static_root(),
                  'ARCHVISUAL_TEMP_ROOT': temp_root(), 'ARCHVISUAL_RELEASE_DIR': release_root()}

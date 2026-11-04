@@ -39,7 +39,7 @@ archvisual/
 ## Installation
 
 ```shell
-bash scripts/setup_python.sh --prepare --python python3.10
+bash scripts/setup_python.sh --prepare --python python3
 bash scripts/setup_python.sh --check --build
 ```
 
@@ -59,6 +59,9 @@ ArchVisual maintains its own environment helpers, dependency pins and `.venv`.
 Do not source parent-repository scripts. Shell wrappers accept `ARCHVISUAL_PYTHON`
 and otherwise select the local `.venv` or the activated `VIRTUAL_ENV`. Output
 defaults to the local `__output__/` and can be overridden by `ARCHVISUAL_OUTPUT_ROOT`.
+Python 3.10/3.11 are admitted and use `requirements.txt`; Python 3.12 and newer
+are rejected. Preparation must use the intended
+interpreter; it never silently replaces an existing venv of another version.
 
 ## Recent Changes
 

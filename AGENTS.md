@@ -12,7 +12,7 @@ For product/setup details, see [README.md](README.md).
 For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 
 ## Fast Start Commands
-- Prepare deps explicitly from this repository: `bash scripts/setup_python.sh --prepare --python python3.10`
+- Prepare deps explicitly from this repository: `bash scripts/setup_python.sh --prepare --python python3`
 - Check only: `bash scripts/setup_python.sh --check --build`
 - Run dev server from this directory: `.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000`
 - Alternative run script: `bash ./run_visual.sh 8000`
@@ -40,10 +40,15 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - `dataviewer/tests.py` is currently minimal. Add tests for behavior changes, especially API request/response flow.
 - ArchVisual is independent: never source/import environment scripts from a parent
   repository. Maintain environment helpers in `scripts/shared_env.sh` and
-  `archvisual_env.py`, with dependency pins in this repository's `requirements.txt`.
+  `archvisual_env.py`. Python 3.10/3.11 are admitted and use the pinned
+  `requirements.txt`; Python 3.12 and newer are rejected.
 - Only explicit `scripts/setup_python.sh --prepare` may create/update the local
   `.venv`. Checking, running and building never install packages. Consumers may
   select an existing interpreter with `ARCHVISUAL_PYTHON`; do not discover a parent venv.
+- Preparation rejects an existing `.venv` with a different Python minor version
+  before pip runs. Do not automatically delete or replace that environment.
+- Interpreter admission is separate from verified compatibility: record the real
+  Python/dependency versions used by tests; never claim all admitted versions pass.
 - Outputs default to this repository's `__output__/`; use `ARCHVISUAL_OUTPUT_ROOT`
   for an explicit external output tree. Keep source files outside build cleanup.
 - Environment and release locks are per source repository, independent of output
