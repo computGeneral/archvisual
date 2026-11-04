@@ -22,7 +22,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import archvisual_env
+from scripts import archvisual_env
 
 def collect_data_files(project_root=None):
     """Collect data files for inclusion in the build - Updated for Django"""
@@ -147,7 +147,7 @@ def build_executable():
         "--include-package=django",
         "--include-package=visualizer",  # Your Django project
         "--include-package=dataviewer",  # Your Django apps
-        "--include-module=archvisual_env",
+        "--include-module=scripts.archvisual_env",
         # Add more apps as needed
 
         # Add these plugins for removing unused imports

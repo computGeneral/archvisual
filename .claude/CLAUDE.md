@@ -16,6 +16,7 @@ ArchVisual is a Django-based visualization project for metric and trace data ana
 
 ```
 archvisual/
+├── scripts/             # Environment, release, conversion helpers and support tests
 ├── visualizer/          # Django project configuration
 ├── dataviewer/           # Main application
 │   ├── templates/         # HTML templates
@@ -59,9 +60,18 @@ ArchVisual maintains its own environment helpers, dependency pins and `.venv`.
 Do not source parent-repository scripts. Shell wrappers accept `ARCHVISUAL_PYTHON`
 and otherwise select the local `.venv` or the activated `VIRTUAL_ENV`. Output
 defaults to the local `__output__/` and can be overridden by `ARCHVISUAL_OUTPUT_ROOT`.
-Python 3.10/3.11 are admitted and use `requirements.txt`; Python 3.12 and newer
-are rejected. Preparation must use the intended
-interpreter; it never silently replaces an existing venv of another version.
+Python 3.10 and newer are admitted. `requirements.txt` records reference pins;
+standalone preparation installs those package names without applying the pins.
+Different package versions warn, while missing or unimportable packages fail.
+Preparation must use the intended interpreter; it never silently replaces an
+existing venv of another version.
+Preparation defaults to the Tsinghua PyPI mirror; pass `-i INDEX_URL` to select
+a different package index for that invocation. CSV conversion scripts live in
+`scripts/`. Shell entrypoints source `scripts/setup_python.sh` for functions;
+only direct execution dispatches `--prepare` or `--check`. Python consumers
+import `scripts.archvisual_env`; release helpers use `scripts.release_tools`.
+Run support tests from the repository root with
+`.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v`.
 
 ## Recent Changes
 

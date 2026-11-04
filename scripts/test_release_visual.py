@@ -1,7 +1,7 @@
 """Release control-flow fault injection; no real Nuitka build or publication.
 
 Run from the ArchVisual repository:
-  .venv/bin/python -B -m unittest test_release_visual -v
+  .venv/bin/python -B -m unittest scripts.test_release_visual -v
 Fixtures use the real local environment helper and the caller's interpreter.
 """
 import importlib.util
@@ -19,10 +19,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import release_tools
-import archvisual_env
+from scripts import release_tools
+from scripts import archvisual_env
 
-PROJECT = Path(__file__).resolve().parent
+PROJECT = Path(__file__).resolve().parent.parent
 PYTHON = Path(sys.executable)
 TEST_OUTPUT = Path(os.environ.get('ARCHVISUAL_RELEASE_TEST_OUTPUT', archvisual_env.output_root() / 'release-tests'))
 
@@ -42,7 +42,7 @@ class ReleaseControlTests(ReleaseFixture):
         self.releases = self.module / 'releases'
         self.project.mkdir(parents=True)
         self.releases.mkdir(parents=True)
-        for name in ('rel_visual.sh', 'release_tools.py', 'archvisual_env.py', 'requirements.txt'):
+        for name in ('rel_visual.sh', 'requirements.txt'):
             shutil.copy2(PROJECT / name, self.project / name)
         self.version = self.project / 'version.txt'
         self.version.write_text('1.2.3\n')
@@ -203,7 +203,7 @@ if mode == 'external-version':
 
     def inject_version_commit_failure(self, fail_rollback=False):
         # Fault injection exists only in this fixture copy, never production.
-        with (self.project / 'release_tools.py').open('a') as helper:
+        with (self.project / 'scripts/release_tools.py').open('a') as helper:
             helper.write(f'''
 _fixture_replace = os.replace
 def _fail_fixture_commit(source, destination):

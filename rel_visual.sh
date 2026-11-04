@@ -11,7 +11,7 @@ set -euo pipefail
 
 # Resolve roots from the script location so it runs from anywhere.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${PROJECT_ROOT}/scripts/shared_env.sh"
+source "${PROJECT_ROOT}/scripts/setup_python.sh"
 archvisual_use_python
 archvisual_hold_python
 archvisual_check_python --build
@@ -116,7 +116,7 @@ export ARCHVISUAL_STATIC_ROOT="$STAGE_DIR/staticfiles"
 export ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT="$STAGE_DIR"
 BINARY_DIR="$STAGE_DIR/output/archvisual"
 PLATFORM_INFO="$("${ARCHVISUAL_PYTHON}" -B -c \
-    'from release_tools import platform_tags; print(*platform_tags())')"
+    'from scripts.release_tools import platform_tags; print(*platform_tags())')"
 read -r OS_TAG ARCH_TAG EXECUTABLE_NAME <<< "$PLATFORM_INFO"
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ ARCHIVE_TEMP="$(mktemp "$RELEASE_DIR/.archvisual.${NEW_VERSION}.${OS_TAG}.${ARCH
 tar -C "$STAGE_DIR/output" -cjf "$ARCHIVE_TEMP" archvisual
 "${ARCHVISUAL_PYTHON}" -B - "$ARCHIVE_TEMP" "$NEW_VERSION" "$EXECUTABLE_NAME" <<'PY'
 import sys
-from release_tools import verify_archive
+from scripts.release_tools import verify_archive
 verify_archive(*sys.argv[1:])
 PY
 
@@ -157,7 +157,7 @@ PY
 "${ARCHVISUAL_PYTHON}" -B - "$ARCHIVE_TEMP" "$TARBALL" \
     "$STAGE_DIR/version.candidate" "$STAGE_DIR/version.original" "$VERSION_FILE" <<'PY'
 import sys
-from release_tools import publish_release
+from scripts.release_tools import publish_release
 publish_release(*sys.argv[1:])
 PY
 

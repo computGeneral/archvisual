@@ -4,7 +4,7 @@ A web-based visualization tool for exploring and analyzing architectural data us
 
 ## Requirements
 
-- Python 3.10 or 3.11 and pip (Python 3.12 and newer are not supported)
+- Python 3.10 or newer and pip (compatibility depends on the installed packages)
 - Bash and flock for the shell wrappers; tar for release packaging
 
 ## Installation and environment
@@ -13,21 +13,27 @@ ArchVisual is an independent repository. Run the following from its own root;
 no ArcheXplor checkout, parent scripts or parent Python environment are needed.
 
 ```bash
-bash scripts/setup_python.sh --prepare --python python3
+bash scripts/setup_python.sh --prepare --python python3.10
+# Optional: choose a different Python package index for this preparation.
+bash scripts/setup_python.sh --prepare --python python3.10 -i https://pypi.org/simple
 bash scripts/setup_python.sh --check --build
 bash run_visual.sh 8000
 ```
 
-Preparation creates or updates only this repository's `.venv`. Python 3.10/3.11
-use the fixed versions in `requirements.txt`. Preparation and environment
-checks reject Python 3.12 and newer before creating a venv or installing packages.
+Preparation creates or updates only this repository's `.venv`. It reads package
+names from `requirements.txt` and lets pip resolve versions without applying
+the reference pins. Pip may adjust installed packages to satisfy their
+dependencies. Python versions newer than the 3.10 reference are admitted with
+a warning; the minimum version is 3.10.
 Preparation refuses a symlinked `.venv` or an existing venv with a different
 Python minor version, before any pip invocation. It does not delete or replace
 that environment. To change versions, move the old `.venv` aside explicitly
 or prepare a separate checkout with the intended `--python` interpreter.
-Installation is explicit:
+Preparation uses the Tsinghua PyPI mirror (`https://pypi.tuna.tsinghua.edu.cn/simple`)
+by default. `-i INDEX_URL` selects a different index for that invocation; it does
+not write pip configuration. Installation is explicit:
 checking, running and building never install packages. Build checks also verify
-Nuitka; runtime checks verify the remaining pinned packages and their imports.
+Nuitka; runtime checks verify that the other required packages can be imported.
 
 Python selection for shell entry points is: explicit `ARCHVISUAL_PYTHON`,
 this repository's `.venv`, then the virtual environment activated through
@@ -39,12 +45,17 @@ For example, an existing external environment can be selected explicitly:
 ARCHVISUAL_PYTHON=/absolute/path/to/venv/bin/python bash run_visual.sh 8000
 ```
 
-The local `scripts/shared_env.sh` and `archvisual_env.py` own selection,
+The local `scripts/setup_python.sh` and `scripts/archvisual_env.py` own selection,
 checks, paths and the environment lock. Preparation takes an exclusive local
 lock; shell runs/releases and direct builds hold a shared lock. On Windows,
 direct Python build/preparation uses an exclusive file lock. The lock is tied
 to this source repository, so changing output directories cannot bypass it.
 The packaged application does not require environment setup scripts.
+`run_visual.sh` and `rel_visual.sh` source `scripts/setup_python.sh` for helper
+functions only; sourcing does not run its CLI or change shell options. Direct
+execution selects `--prepare` or `--check`. Python consumers import
+`scripts.archvisual_env`; release helpers and `test_*.py` also live in `scripts/`.
+The former root helper/test paths and `scripts/shared_env.sh` have been removed.
 
 ```bash
 .venv/bin/python -B archvisual.py check
@@ -64,14 +75,26 @@ Existing `ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT`, `ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT
 and `ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT` remain aliases; the corresponding
 `ARCHVISUAL_*` variable takes precedence. No parent helper is imported.
 
-Dependency pins in `requirements.txt` are Django 4.2.23,
-django-cors-headers 4.4.0, pandas 2.0.3, numpy 1.24.4, numexpr 2.8.6,
-blosc2 2.3.0, tables 3.10.1 and Nuitka 4.0.3. Runtime/build checks enforce
-these pins and actual imports, without silently upgrading dependencies.
+The fixed versions in `requirements.txt` are a reference baseline, also used
+by the parent workspace. An installed package version that differs from this
+baseline produces a warning, but does not fail the check. Missing or
+unimportable required packages fail. Warnings do not guarantee compatibility:
+run the application checks for the actual Python and package combination.
+Nuitka is required only for build checks.
 
-Python 3.10.12 has been exercised on Linux x86_64. Python 3.11 is admitted
-but has not yet been validated here. Nuitka application compilation was not
-performed.
+Python 3.10.12 and 3.13.14 have been exercised on Linux x86_64 with specific
+dependency combinations. Other versions and platforms are not covered by those
+results. The Python 3.10.12 / Nuitka 4.3.4 Linux x86_64 standalone build
+was also verified after relocation, with the build source directory unavailable:
+environment path resolution, Django checks, 11 HDF5 tests and MetricViewer
+HTTP startup passed. Other Python/platform build combinations were not tested.
+
+## CSV conversion scripts
+
+```bash
+.venv/bin/python scripts/csv2hdf.py -i metrics.csv -o metrics.h5
+.venv/bin/python scripts/csv2json.py metrics.csv -o metrics.json
+```
 
 ## Input Data Format
 
@@ -316,5 +339,5 @@ Release failure-path tests use isolated repositories and injected build/tar
 failures; they do not compile Nuitka or publish a real release:
 
 ```bash
-.venv/bin/python -B -m unittest test_archvisual_env test_release_visual -v
+.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v
 ```

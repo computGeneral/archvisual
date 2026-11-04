@@ -15,8 +15,8 @@ Output is Chrome Tracing JSON ("trace_events" with ph:"C" counter events),
 which https://ui.perfetto.dev opens directly via "Open trace file".
 
 Usage:
-    python3 utils/csv2json.py examples/metricview.csv
-    python3 utils/csv2json.py examples/metricview.csv -o out.json --bin-us 1.0
+    python3 scripts/csv2json.py examples/metricview.csv
+    python3 scripts/csv2json.py examples/metricview.csv -o out.json --bin-us 1.0
 """
 
 import argparse

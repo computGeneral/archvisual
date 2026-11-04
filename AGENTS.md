@@ -13,12 +13,13 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 
 ## Fast Start Commands
 - Prepare deps explicitly from this repository: `bash scripts/setup_python.sh --prepare --python python3`
+- Prepare with a different Python package index: `bash scripts/setup_python.sh --prepare -i https://pypi.org/simple`
 - Check only: `bash scripts/setup_python.sh --check --build`
 - Run dev server from this directory: `.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000`
 - Alternative run script: `bash ./run_visual.sh 8000`
 - Django checks: `.venv/bin/python -B archvisual.py check`
 - Tests: `.venv/bin/python -B archvisual.py test`
-- Environment/release tests: `.venv/bin/python -B -m unittest test_archvisual_env test_release_visual -v`
+- Environment/release/conversion tests: `.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v`
 
 ## Code Map
 - Routing: `visualizer/urls.py`
@@ -27,6 +28,9 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - In-memory shared state for loaded datasets: `dataviewer/globalvar.py`
 - Frontend templates: `dataviewer/templates/*.html`
 - Static JS/assets: `dataviewer/static/`
+- Environment, release helpers, CSV conversion and support tests: `scripts/`
+- Shell environment entry: `scripts/setup_python.sh` (source for functions; execute for CLI)
+- Python environment entry: `scripts/archvisual_env.py` (import as `scripts.archvisual_env`)
 
 ## Project-Specific Conventions
 - Keep API endpoints as function-based Django views in `dataviewer/views.py`.
@@ -39,12 +43,16 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - `dataviewer/globalvar.py` is global mutable state and may have concurrency implications under multi-worker deployment.
 - `dataviewer/tests.py` is currently minimal. Add tests for behavior changes, especially API request/response flow.
 - ArchVisual is independent: never source/import environment scripts from a parent
-  repository. Maintain environment helpers in `scripts/shared_env.sh` and
-  `archvisual_env.py`. Python 3.10/3.11 are admitted and use the pinned
-  `requirements.txt`; Python 3.12 and newer are rejected.
+  repository. Maintain environment helpers in `scripts/setup_python.sh` and
+  `scripts/archvisual_env.py`. Python 3.10 and newer are admitted. Reference versions
+  are in `requirements.txt`; standalone preparation installs its package names
+  without applying the reference pins. Version differences warn; missing or
+  unimportable required packages fail the environment check.
 - Only explicit `scripts/setup_python.sh --prepare` may create/update the local
   `.venv`. Checking, running and building never install packages. Consumers may
   select an existing interpreter with `ARCHVISUAL_PYTHON`; do not discover a parent venv.
+- Preparation defaults to the Tsinghua PyPI mirror; `-i INDEX_URL` selects a
+  different package index for that invocation without changing pip configuration.
 - Preparation rejects an existing `.venv` with a different Python minor version
   before pip runs. Do not automatically delete or replace that environment.
 - Interpreter admission is separate from verified compatibility: record the real
