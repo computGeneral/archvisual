@@ -22,19 +22,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-# Establish routing before business imports; importing this file alone is read-only.
-_python_root = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_python_root))
-from scripts import workspace_python
-if __name__ == "__main__":
-    workspace_python.start_task(_python_root)
-
-import os
-import sys
-import shutil
-import platform
-import subprocess
-from pathlib import Path
+import archvisual_env
 
 def collect_data_files(project_root=None):
     """Collect data files for inclusion in the build - Updated for Django"""
@@ -86,9 +74,8 @@ def check_python_source():
             print("FATAL: You are using Apple's system Python which is not compatible with Nuitka")
             print("Solution: Please install Python from https://www.python.org/downloads/macos/")
             print("Then create a virtual environment with the downloaded Python:")
-            print("   bash scripts/setup_workspace_python.sh --prepare")
-            print("   use the repository .venv/bin/python")
-            print("   dependencies are managed by the workspace setup entry")
+            print("   bash scripts/setup_python.sh --prepare --python /path/to/python3.10")
+            print("   use ArchVisual's own .venv/bin/python")
             print("Then run this build script again.")
             print("=" * 80 + "\n")
             sys.exit(1)
@@ -97,7 +84,7 @@ def collect_static_files(entry_point):
     """Collect Django static files for production"""
     print("Collecting static files...")
     try:
-        workspace_python.managed_check_call([sys.executable, f"{entry_point}", "collectstatic", "--noinput"])
+        subprocess.check_call([sys.executable, f"{entry_point}", "collectstatic", "--noinput"])
         print("Static files collected successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Warning: Static file collection may have failed: {e}")
@@ -128,16 +115,8 @@ def build_executable():
     
     app_name = "archvisual"
     entry_point = f"{project_root}/archvisual.py"  # Django entry point
-    repo_root = Path(project_root).parent.resolve()
-    required_output_root = (repo_root / "__output__").resolve()
-    workspace_output_root = Path(os.environ.get(
-        "ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT",
-        required_output_root / "archvisual")).resolve()
-    if (workspace_output_root != required_output_root / "archvisual"
-            and not workspace_output_root.is_relative_to(required_output_root / "archvisual")):
-        raise RuntimeError(
-            f"archvisual output must be under {required_output_root / 'archvisual'}")
-    os.environ["ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT"] = str(
+    workspace_output_root = archvisual_env.output_root()
+    os.environ["ARCHVISUAL_STATIC_ROOT"] = str(
         workspace_output_root / "staticfiles")
     dist_path = str(workspace_output_root / "output")
     build_path = str(workspace_output_root / "build")
@@ -168,6 +147,7 @@ def build_executable():
         "--include-package=django",
         "--include-package=visualizer",  # Your Django project
         "--include-package=dataviewer",  # Your Django apps
+        "--include-module=archvisual_env",
         # Add more apps as needed
 
         # Add these plugins for removing unused imports
@@ -247,7 +227,7 @@ def build_executable():
     try:
         print("Starting Nuitka build...")
         print("Command:", " ".join(cmd))
-        workspace_python.managed_check_call(cmd, cwd=project_root)
+        subprocess.check_call(cmd, cwd=project_root)
     except subprocess.CalledProcessError as e:
         print(f"Build failed with error: {e}")
         raise
@@ -287,8 +267,10 @@ pause
 
 if __name__ == "__main__":
     try:
-        check_python_source()
-        build_executable()
+        with archvisual_env.environment_lock():
+            archvisual_env.check_environment(build=True)
+            check_python_source()
+            build_executable()
     except Exception as e:
         print(f"[FATAL] BUILD FAILED: {e}", file=sys.stderr)
         import traceback

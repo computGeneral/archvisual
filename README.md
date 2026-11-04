@@ -4,41 +4,63 @@ A web-based visualization tool for exploring and analyzing architectural data us
 
 ## Requirements
 
-- Workspace Python 3.10.12 at repo-root `.venv/bin/python`
-- pip (Python package manager)
+- Python 3.10 (validated with 3.10.12) and pip
+- Bash and flock for the shell wrappers; tar for release packaging
 
-## Installation
+## Installation and environment
 
-### Step 1: Install Python Dependencies
-
-From the repository root, explicitly prepare and check the shared environment:
-
-```bash
-bash scripts/setup_workspace_python.sh --prepare
-bash scripts/setup_workspace_python.sh --check
-```
-
-Root requirements include this module, perfmodel and ISAGEN. Do not install
-packages during a frozen candidate run or create a separate module venv.
-Build/run wrappers hold a task-lifetime Python environment read lock. For bare
-Django commands use the managed entry from repo root, for example:
-`.venv/bin/python -B scripts/workspace_python.py run -- .venv/bin/python -B archvisual/archvisual.py check`.
-The packaged application does not depend on a workspace-only guard.
-
-**Required packages:**
-- Django (4.2.23) - Web framework
-- django-cors-headers (4.4.0) - CORS support
-- pandas (2.0.3) - Data manipulation and analysis
-- numpy (1.24.4) - Numerical computing
-- numexpr (2.8.6) - Fast numerical expression evaluation
-- blosc2 (2.0.0) - Data compression
-- nuitka (4.0.3) - Python compiler
-
-### Step 2: Verify Installation
+ArchVisual is an independent repository. Run the following from its own root;
+no ArcheXplor checkout, parent scripts or parent Python environment are needed.
 
 ```bash
-.venv/bin/python -B -c "import django; import pandas; print('Installation successful!')"
+bash scripts/setup_python.sh --prepare --python python3.10
+bash scripts/setup_python.sh --check --build
+bash run_visual.sh 8000
 ```
+
+Preparation creates or updates only this repository's `.venv` using its own
+`requirements.txt`. It refuses a symlinked `.venv`. Installation is explicit:
+checking, running and building never install packages. Build checks also verify
+Nuitka; runtime checks verify the remaining pinned packages and their imports.
+
+Python selection for shell entry points is: explicit `ARCHVISUAL_PYTHON`,
+this repository's `.venv`, then the virtual environment activated through
+`VIRTUAL_ENV`. An invalid explicit interpreter fails without falling back.
+The interpreter's venv path is preserved, and PATH is not rewritten.
+For example, an existing external environment can be selected explicitly:
+
+```bash
+ARCHVISUAL_PYTHON=/absolute/path/to/venv/bin/python bash run_visual.sh 8000
+```
+
+The local `scripts/shared_env.sh` and `archvisual_env.py` own selection,
+checks, paths and the environment lock. Preparation takes an exclusive local
+lock; shell runs/releases and direct builds hold a shared lock. On Windows,
+direct Python build/preparation uses an exclusive file lock. The lock is tied
+to this source repository, so changing output directories cannot bypass it.
+The packaged application does not require environment setup scripts.
+
+```bash
+.venv/bin/python -B archvisual.py check
+.venv/bin/python -B archvisual.py test dataviewer --noinput
+.venv/bin/python -B build_visual.py
+```
+
+Default build, static, upload temporary and test outputs are inside this
+repository's `__output__/`. `ARCHVISUAL_OUTPUT_ROOT` overrides that root;
+`ARCHVISUAL_STATIC_ROOT` and `ARCHVISUAL_TEMP_ROOT` optionally override their
+individual directories. Relative paths are anchored to the ArchVisual root,
+independent of the caller's working directory. Output must not overlap source
+paths. An ArcheXplor consumer can explicitly set `ARCHVISUAL_PYTHON` and
+`ARCHVISUAL_OUTPUT_ROOT` to reuse its environment and output tree.
+
+Existing `ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT`, `ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT`
+and `ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT` remain aliases; the corresponding
+`ARCHVISUAL_*` variable takes precedence. No parent helper is imported.
+
+Pinned dependencies are maintained in `requirements.txt`: Django 4.2.23,
+django-cors-headers 4.4.0, pandas 2.0.3, numpy 1.24.4, numexpr 2.8.6,
+blosc2 2.3.0, tables 3.10.1 and Nuitka 4.0.3.
 
 ## Input Data Format
 
@@ -193,12 +215,12 @@ columns=metric names) and optional `/config`. Perfmodel's generated
 `*_perf_metric_*.h5` files use this structure. The x-axis displays sample labels;
 Heat does not infer a physical time unit from the file name.
 
-Validation from the repository root, after binding workspace Python:
+Validation from the ArchVisual repository root:
 
 ```bash
-.venv/bin/python -B archvisual/archvisual.py check
-.venv/bin/python -B archvisual/archvisual.py test dataviewer --noinput
-node archvisual/dataviewer/test_metric_heat.cjs
+.venv/bin/python -B archvisual.py check
+.venv/bin/python -B archvisual.py test dataviewer --noinput
+node dataviewer/test_metric_heat.cjs
 ```
 
 Heat viewport stability is covered by an additional browser regression. With
@@ -206,10 +228,10 @@ Playwright available to Node and a local Chrome executable, start ArchVisual
 and run from the repository root:
 
 ```bash
-node archvisual/dataviewer/test_heat_stability.cjs http://127.0.0.1:8000
-node archvisual/dataviewer/test_heat_scale.cjs http://127.0.0.1:8000
-node archvisual/dataviewer/test_heat_multiple_plot.cjs http://127.0.0.1:8000
-node archvisual/dataviewer/test_heat_statistics.cjs http://127.0.0.1:8000
+node dataviewer/test_heat_stability.cjs http://127.0.0.1:8000
+node dataviewer/test_heat_scale.cjs http://127.0.0.1:8000
+node dataviewer/test_heat_multiple_plot.cjs http://127.0.0.1:8000
+node dataviewer/test_heat_statistics.cjs http://127.0.0.1:8000
 ```
 
 The test keeps ordinary scrollbars visible and checks idle repaint, resize
@@ -226,7 +248,7 @@ error-status wrapping, shared drag resizing and limits, pointer cleanup,
 keyboard resizing, hidden sidebar state and real edge-drag reopening (including
 1–10 px widths), and real control clicks after narrow-panel horizontal scrolling.
 `HEAT_TEST_RELOAD_FIXTURE` optionally selects a different H5 for its reload check. Template test artifacts are written under the output tree.
-The statistics regression uses workspace Python to generate H5 fixtures and
+The statistics regression uses the locally selected Python to generate H5 fixtures and
 independent math.fsum reference means under its output directory.
 
 ## Metric / Trace keyboard synchronization
@@ -243,7 +265,7 @@ key events, the example H5, and a minimal Catapult trace. It checks normal and
 high pixel density, rapid repeated panning, Sync off, and standalone Trace:
 
 ```bash
-node archvisual/dataviewer/test_trace_metric_sync.cjs http://127.0.0.1:8000
+node dataviewer/test_trace_metric_sync.cjs http://127.0.0.1:8000
 ```
 
 `TRACE_SYNC_CHROME` selects Chrome; `TRACE_SYNC_TEST_OUTPUT` selects a report
@@ -252,13 +274,13 @@ The existing time conversion and Trace display padding remain unchanged.
 
 ## Safe release packaging
 
-From the repository root, run `bash archvisual/rel_visual.sh min` (or `mid` /
-`maj`). The script uses the managed workspace Python and serializes releases
-with a project release lock. It builds inside a unique directory under
-`__output__/archvisual/.release-staging/`; regular standalone build outputs
+From the ArchVisual repository root, run `bash rel_visual.sh min` (or `mid` /
+`maj`). The script uses the locally selected Python and serializes releases
+with a source-project release lock, even when output overrides differ. It builds
+inside a unique directory under `__output__/.release-staging/`; regular standalone build outputs
 and existing release packages are kept separate.
 
-Validated packages are published under `__output__/archvisual/releases/` as
+Validated packages are published under `__output__/releases/` as
 `archvisual.<version>.<system>.<machine>.tar.bz2`, for example
 `archvisual.0.4.1.linux.x86_64.tar.bz2`. Source `version.txt` stays at its old
 value while building and validating. The temporary archive is atomically
@@ -267,9 +289,9 @@ restore the previous archive/version; a failed rollback retains recovery
 artifacts and reports their location. Cleanup failures after a completed
 publication are reported separately. Package permissions follow the current umask.
 
-`ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR` overrides the release destination within
-repo-root `__output__/`. The older `ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR` remains a
-fallback for safe destinations; locations inside cleaned output/build/static
+`ARCHVISUAL_RELEASE_DIR` overrides the release destination. The legacy
+`ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR` and `ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR` remain
+fallbacks for safe destinations; locations inside cleaned output/build/static
 or release-staging directories are rejected. Existing packages are not moved
 automatically. `build_visual.py` retains its standalone output layout.
 
@@ -283,5 +305,5 @@ Release failure-path tests use isolated repositories and injected build/tar
 failures; they do not compile Nuitka or publish a real release:
 
 ```bash
-.venv/bin/python -B -m unittest discover -s archvisual -p test_release_visual.py -v
+.venv/bin/python -B -m unittest test_archvisual_env test_release_visual -v
 ```

@@ -1,18 +1,17 @@
 """Release control-flow fault injection; no real Nuitka build or publication.
 
-Run from repo root with the admitted workspace interpreter:
-  .venv/bin/python -B -m unittest discover -s archvisual -p test_release_visual.py -v
-Fixture environment helpers do not test workspace Python admission. Every child
-Python process uses the same repo-root interpreter under the caller's lease.
+Run from the ArchVisual repository:
+  .venv/bin/python -B -m unittest test_release_visual -v
+Fixtures use the real local environment helper and the caller's interpreter.
 """
 import importlib.util
 import io
 import os
 import platform
-import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -21,11 +20,11 @@ from pathlib import Path
 from unittest import mock
 
 import release_tools
+import archvisual_env
 
 PROJECT = Path(__file__).resolve().parent
-ROOT = PROJECT.parent
-PYTHON = ROOT / '.venv/bin/python'
-TEST_OUTPUT = Path(os.environ.get('ARCHVISUAL_RELEASE_TEST_OUTPUT', ROOT / '__output__/archvisual/release-tests'))
+PYTHON = Path(sys.executable)
+TEST_OUTPUT = Path(os.environ.get('ARCHVISUAL_RELEASE_TEST_OUTPUT', archvisual_env.output_root() / 'release-tests'))
 
 
 class ReleaseFixture(unittest.TestCase):
@@ -39,11 +38,11 @@ class ReleaseControlTests(ReleaseFixture):
         super().setUp()
         self.repo = self.case / 'repo'
         self.project = self.repo / 'archvisual'
-        self.module = self.repo / '__output__/archvisual'
+        self.module = self.project / '__output__'
         self.releases = self.module / 'releases'
         self.project.mkdir(parents=True)
         self.releases.mkdir(parents=True)
-        for name in ('rel_visual.sh', 'release_tools.py'):
+        for name in ('rel_visual.sh', 'release_tools.py', 'archvisual_env.py', 'requirements.txt'):
             shutil.copy2(PROJECT / name, self.project / name)
         self.version = self.project / 'version.txt'
         self.version.write_text('1.2.3\n')
@@ -54,25 +53,12 @@ class ReleaseControlTests(ReleaseFixture):
         self.legacy = self.module / 'output/legacy.tar.bz2'
         self.legacy.parent.mkdir()
         self.legacy.write_bytes(b'legacy archive outside staging')
-        scripts = self.repo / 'scripts'
-        scripts.mkdir()
-        (scripts / 'shared_env.sh').write_text(f'''archexplor_use_workspace_python() {{ export ARCHEXPLOR_PYTHON_BIN={shlex.quote(str(PYTHON))}; }}
-archexplor_hold_workspace_python() {{ :; }}
-archexplor_configure_output_environment() {{ :; }}
-archexplor_require_output_path() {{
-    local normalized
-    normalized="$(realpath -m -- "$1")" || return 1
-    case "$normalized" in
-        {shlex.quote(str(self.repo / '__output__'))}/*) printf '%s\\n' "$normalized" ;;
-        *) echo 'fixture output outside repository output root' >&2; return 1 ;;
-    esac
-}}
-''')
+        shutil.copytree(PROJECT / 'scripts', self.project / 'scripts')
         (self.project / 'build_visual.py').write_text('''from pathlib import Path
 import os, platform, shutil, time
 project = Path(__file__).parent
-root = Path(os.environ['ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT'])
-assert root.is_relative_to(project.parent / '__output__/archvisual/.release-staging')
+root = Path(os.environ['ARCHVISUAL_OUTPUT_ROOT'])
+assert root.is_relative_to(project / '__output__/.release-staging') or os.environ.get('RELEASE_ALLOW_CUSTOM_OUTPUT') == '1'
 (project.parent / 'observed-version.txt').write_bytes((project / 'version.txt').read_bytes())
 (project.parent / 'observed-root.txt').write_text(str(root))
 shutil.rmtree(root / 'output', ignore_errors=True)
@@ -98,8 +84,10 @@ if mode == 'external-version':
     (project / 'version.txt').write_text('9.9.9\\n')
 ''')
         self.env = dict(os.environ)
-        for key in ('ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR', 'ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR', 'RELEASE_TEST_MODE'):
-            self.env.pop(key, None)
+        for key in list(self.env):
+            if key.startswith(('ARCHVISUAL_', 'ARCHEXPLOR_ARCHVISUAL_')) or key == 'RELEASE_TEST_MODE':
+                self.env.pop(key)
+        self.env['ARCHVISUAL_PYTHON'] = str(PYTHON)
 
     def filename(self, version):
         system, machine, _ = release_tools.platform_tags()
@@ -268,6 +256,26 @@ os.replace = _fail_fixture_commit
         self.assertEqual(self.version.read_text(), '1.2.4\n')
         self.assert_clean()
 
+    def test_output_override_cannot_bypass_the_source_version_lock(self):
+        process = self.blocked_release()
+        second = self.run_release(env={'ARCHVISUAL_OUTPUT_ROOT': str(self.case / 'other-output')})
+        self.assertEqual(second.returncode, 75, second.stderr)
+        self.assertEqual(self.version.read_text(), '1.2.3\n')
+        (self.repo / 'continue').touch()
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+
+    def test_explicit_output_and_release_paths_work_without_parent_scripts(self):
+        output = self.case / 'standalone-output'
+        releases = self.case / 'standalone-releases'
+        result = self.run_release(env={'ARCHVISUAL_OUTPUT_ROOT': str(output),
+                                      'ARCHVISUAL_RELEASE_DIR': str(releases),
+                                      'RELEASE_ALLOW_CUSTOM_OUTPUT': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.repo / 'scripts').exists())
+        release_tools.verify_archive(releases / self.filename('1.2.4'), '1.2.4', release_tools.platform_tags()[2])
+        self.assertEqual(self.old.read_bytes(), b'previous version archive')
+
     def test_interrupted_build_preserves_version_and_archives(self):
         process = self.blocked_release()
         process.send_signal(signal.SIGTERM)
@@ -426,9 +434,9 @@ class BuildFailureTests(ReleaseFixture):
         # compiler invocation and collectstatic are replaced in this test.
         for failure in (subprocess.CalledProcessError(32, ['nuitka']), None):
             with self.subTest(failure=failure):
-                with mock.patch.dict(os.environ, {'ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT': str(self.case / 'builder')}), \
+                with mock.patch.dict(os.environ, {'ARCHVISUAL_OUTPUT_ROOT': str(self.case / 'builder')}), \
                         mock.patch.object(module, 'collect_static_files'), \
-                        mock.patch.object(module.workspace_python, 'managed_check_call', side_effect=failure):
+                        mock.patch.object(module.subprocess, 'check_call', side_effect=failure):
                     with self.assertRaises(subprocess.CalledProcessError if failure else FileNotFoundError):
                         module.build_executable()
 

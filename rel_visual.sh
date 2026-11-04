@@ -11,21 +11,17 @@ set -euo pipefail
 
 # Resolve roots from the script location so it runs from anywhere.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${PROJECT_ROOT}/.." && pwd -P)"
-source "${REPO_ROOT}/scripts/shared_env.sh"
-archexplor_use_workspace_python || exit 1
-archexplor_hold_workspace_python || exit $?
-archexplor_configure_output_environment
+source "${PROJECT_ROOT}/scripts/shared_env.sh"
+archvisual_use_python
+archvisual_hold_python
+archvisual_check_python --build
+archvisual_configure_paths
 cd "$PROJECT_ROOT"
 
 VERSION_FILE="$PROJECT_ROOT/version.txt"
-MODULE_OUTPUT="$(archexplor_require_output_path \
-    "${REPO_ROOT}/__output__/archvisual" "archvisual module output")"
-RELEASE_DIR="$(archexplor_require_output_path \
-    "${ARCHEXPLOR_ARCHVISUAL_RELEASE_DIR:-${ARCHEXPLOR_ARCHVISUAL_OUTPUT_DIR:-${MODULE_OUTPUT}/releases}}" \
-    "archvisual release output")"
-STAGING_ROOT="$(archexplor_require_output_path \
-    "${MODULE_OUTPUT}/.release-staging" "archvisual release staging")"
+MODULE_OUTPUT="$ARCHVISUAL_OUTPUT_ROOT"
+RELEASE_DIR="$ARCHVISUAL_RELEASE_DIR"
+STAGING_ROOT="$MODULE_OUTPUT/.release-staging"
 case "$RELEASE_DIR" in
     "$MODULE_OUTPUT/output"|"$MODULE_OUTPUT/output/"*|\
     "$MODULE_OUTPUT/build"|"$MODULE_OUTPUT/build/"*|\
@@ -51,9 +47,9 @@ case "$ARG" in
 esac
 
 # Serializes version reads and publication even when output overrides differ.
-# Lock ordering remains workspace Python shared lock -> module release lock.
+# Lock ordering: local Python shared lock -> project release lock.
 mkdir -p "$MODULE_OUTPUT" "$RELEASE_DIR" "$STAGING_ROOT"
-exec {release_lock_fd}>"$MODULE_OUTPUT/.release.lock"
+exec {release_lock_fd}>"$PROJECT_ROOT/.archvisual-release.lock"
 if ! flock -n "$release_lock_fd"; then
     echo "ERROR: another ArchVisual release is running" >&2
     exit 75
@@ -114,9 +110,12 @@ trap 'exit 143' TERM
 cp -p "$VERSION_FILE" "$STAGE_DIR/version.original"
 cp -p "$VERSION_FILE" "$STAGE_DIR/version.candidate"
 printf '%s\n' "$NEW_VERSION" > "$STAGE_DIR/version.candidate"
+export ARCHVISUAL_OUTPUT_ROOT="$STAGE_DIR"
+export ARCHVISUAL_STATIC_ROOT="$STAGE_DIR/staticfiles"
+# Retain the legacy input name for existing external build adapters.
 export ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT="$STAGE_DIR"
 BINARY_DIR="$STAGE_DIR/output/archvisual"
-PLATFORM_INFO="$("${ARCHEXPLOR_PYTHON_BIN}" -B -c \
+PLATFORM_INFO="$("${ARCHVISUAL_PYTHON}" -B -c \
     'from release_tools import platform_tags; print(*platform_tags())')"
 read -r OS_TAG ARCH_TAG EXECUTABLE_NAME <<< "$PLATFORM_INFO"
 
@@ -124,7 +123,7 @@ read -r OS_TAG ARCH_TAG EXECUTABLE_NAME <<< "$PLATFORM_INFO"
 # 5. Run build_visual.py inside this release's private output root.
 # ---------------------------------------------------------------------------
 echo "=== Running build_visual.py ==="
-"${ARCHEXPLOR_PYTHON_BIN}" "$PROJECT_ROOT/build_visual.py"
+"${ARCHVISUAL_PYTHON}" -B "$PROJECT_ROOT/build_visual.py"
 
 if [[ ! -s "$BINARY_DIR/$EXECUTABLE_NAME" ]]; then
     echo "ERROR: build executable not found or empty: $BINARY_DIR/$EXECUTABLE_NAME" >&2
@@ -147,7 +146,7 @@ TARBALL="$RELEASE_DIR/archvisual.${NEW_VERSION}.${OS_TAG}.${ARCH_TAG}.tar.bz2"
 echo "=== Creating $TARBALL ==="
 ARCHIVE_TEMP="$(mktemp "$RELEASE_DIR/.archvisual.${NEW_VERSION}.${OS_TAG}.${ARCH_TAG}.tmp.XXXXXX")"
 tar -C "$STAGE_DIR/output" -cjf "$ARCHIVE_TEMP" archvisual
-"${ARCHEXPLOR_PYTHON_BIN}" -B - "$ARCHIVE_TEMP" "$NEW_VERSION" "$EXECUTABLE_NAME" <<'PY'
+"${ARCHVISUAL_PYTHON}" -B - "$ARCHIVE_TEMP" "$NEW_VERSION" "$EXECUTABLE_NAME" <<'PY'
 import sys
 from release_tools import verify_archive
 verify_archive(*sys.argv[1:])
@@ -155,7 +154,7 @@ PY
 
 # 8. Publish atomically, then update the source version. On a publication error,
 # restore the original archive/version; no final pathname contains partial tar.
-"${ARCHEXPLOR_PYTHON_BIN}" -B - "$ARCHIVE_TEMP" "$TARBALL" \
+"${ARCHVISUAL_PYTHON}" -B - "$ARCHIVE_TEMP" "$TARBALL" \
     "$STAGE_DIR/version.candidate" "$STAGE_DIR/version.original" "$VERSION_FILE" <<'PY'
 import sys
 from release_tools import publish_release

@@ -12,12 +12,13 @@ For product/setup details, see [README.md](README.md).
 For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 
 ## Fast Start Commands
-- Prepare deps explicitly from repo root: `bash scripts/setup_workspace_python.sh --prepare`
-- Check only from repo root: `bash scripts/setup_workspace_python.sh --check`
-- Run dev server from this directory: `../.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000`
+- Prepare deps explicitly from this repository: `bash scripts/setup_python.sh --prepare --python python3.10`
+- Check only: `bash scripts/setup_python.sh --check --build`
+- Run dev server from this directory: `.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000`
 - Alternative run script: `bash ./run_visual.sh 8000`
-- Django checks: `../.venv/bin/python -B archvisual.py check`
-- Tests: `../.venv/bin/python -B archvisual.py test`
+- Django checks: `.venv/bin/python -B archvisual.py check`
+- Tests: `.venv/bin/python -B archvisual.py test`
+- Environment/release tests: `.venv/bin/python -B -m unittest test_archvisual_env test_release_visual -v`
 
 ## Code Map
 - Routing: `visualizer/urls.py`
@@ -37,11 +38,19 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - The app is stateful in-process. Restarting the server clears loaded data.
 - `dataviewer/globalvar.py` is global mutable state and may have concurrency implications under multi-worker deployment.
 - `dataviewer/tests.py` is currently minimal. Add tests for behavior changes, especially API request/response flow.
-- Root requirements include this module's pins. Do not install packages during
-  candidate validation or create a module-local venv; use the shared main environment.
+- ArchVisual is independent: never source/import environment scripts from a parent
+  repository. Maintain environment helpers in `scripts/shared_env.sh` and
+  `archvisual_env.py`, with dependency pins in this repository's `requirements.txt`.
+- Only explicit `scripts/setup_python.sh --prepare` may create/update the local
+  `.venv`. Checking, running and building never install packages. Consumers may
+  select an existing interpreter with `ARCHVISUAL_PYTHON`; do not discover a parent venv.
+- Outputs default to this repository's `__output__/`; use `ARCHVISUAL_OUTPUT_ROOT`
+  for an explicit external output tree. Keep source files outside build cleanup.
+- Environment and release locks are per source repository, independent of output
+  overrides. Preserve release rollback and version protection.
 
 ## Change Guidelines For Agents
 - Prefer minimal, targeted edits. Do not reformat unrelated files.
 - When changing endpoints, update both URL routes and corresponding frontend usage in templates/static JS.
-- Validate with at least `../.venv/bin/python -B archvisual.py check` after backend changes.
+- Validate with at least `.venv/bin/python -B archvisual.py check` after backend changes.
 - If adding nontrivial behavior, include or update tests under `dataviewer/tests.py`.

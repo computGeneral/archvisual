@@ -39,21 +39,26 @@ archvisual/
 ## Installation
 
 ```shell
-pip3 install Django -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
-pip3 install pandas -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+bash scripts/setup_python.sh --prepare --python python3.10
+bash scripts/setup_python.sh --check --build
 ```
 
 ## Running the Server
 
 ```shell
 # Direct Django command
-python archvisual.py runserver 0.0.0.0:8000
+.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000
 
 # Using the provided shell script
 bash ./run_visual.sh 8000
 ```
 
 Access the application at: `http://0.0.0.0:8000/`
+
+ArchVisual maintains its own environment helpers, dependency pins and `.venv`.
+Do not source parent-repository scripts. Shell wrappers accept `ARCHVISUAL_PYTHON`
+and otherwise select the local `.venv` or the activated `VIRTUAL_ENV`. Output
+defaults to the local `__output__/` and can be overridden by `ARCHVISUAL_OUTPUT_ROOT`.
 
 ## Recent Changes
 

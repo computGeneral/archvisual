@@ -8,13 +8,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const root = path.resolve(__dirname, '../..');
-const output = path.resolve(process.env.HEAT_TEST_OUTPUT || path.join(root, '__output__/archvisual/heat_statistics'));
+const root = path.resolve(__dirname, '..');
+const output = path.resolve(process.env.HEAT_TEST_OUTPUT || path.join(root, '__output__/heat_statistics'));
 const baseUrl = process.argv[2] || 'http://127.0.0.1:8097';
 
 (async () => {
     fs.mkdirSync(output, { recursive: true });
-    const fixture = spawnSync('bash', ['-c', 'set -e\nsource scripts/shared_env.sh\narchexplor_use_workspace_python\narchexplor_hold_workspace_python\nexec .venv/bin/python -B -'], {
+    const fixture = spawnSync('bash', ['-c', 'set -e\nsource \"$1/scripts/shared_env.sh\"\narchvisual_use_python\narchvisual_hold_python\nexec \"$ARCHVISUAL_PYTHON\" -B -', 'heat-statistics', root], {
         cwd: root, encoding: 'utf8', env: { ...process.env, HEAT_STATS_OUTPUT: output }, input: `
 import json, math, os
 from pathlib import Path
@@ -40,7 +40,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
     (out / (label + '.json')).write_text(json.dumps({'times': times, 'names': list(data), 'values': data, 'stats': stats}))
 ` });
     fs.writeFileSync(path.join(output, 'fixture.log'), fixture.stdout + fixture.stderr);
-    assert.equal(fixture.status, 0, 'workspace Python must generate independent reference fixtures');
+    assert.equal(fixture.status, 0, 'ArchVisual Python must generate independent reference fixtures');
     const browser = await chromium.launch({ executablePath: process.env.HEAT_TEST_CHROME || '/usr/bin/google-chrome',
         headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });

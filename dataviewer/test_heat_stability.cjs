@@ -10,7 +10,7 @@ const path = require('node:path');
 
 const baseUrl = process.argv[2] || 'http://127.0.0.1:8097';
 const fixture = path.resolve(__dirname, '../examples/metricview.h5');
-const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../../__output__/archvisual/heat_stability');
+const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__output__/heat_stability');
 
 (async () => {
     fs.mkdirSync(output, { recursive: true });

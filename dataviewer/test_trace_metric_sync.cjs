@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const baseUrl = process.argv[2] || 'http://127.0.0.1:8097';
-const output = process.env.TRACE_SYNC_TEST_OUTPUT || path.resolve(__dirname, '../../__output__/archvisual/trace_metric_sync');
+const output = process.env.TRACE_SYNC_TEST_OUTPUT || path.resolve(__dirname, '../__output__/trace_metric_sync');
 const fixture = path.resolve(__dirname, '../examples/metricview.h5');
 const trace = JSON.stringify({ traceEvents: [
     { ph: 'X', name: 'keyboard sync workload', pid: 1, tid: 1, ts: 0, dur: 20000 }

@@ -27,16 +27,12 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 import os
 
 from pathlib import Path
+import archvisual_env
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-REPO_OUTPUT_ROOT = BASE_DIR.parent / "__output__" / "archvisual"
-STATIC_ROOT = os.environ.get(
-    "ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT",
-    str(REPO_OUTPUT_ROOT / "staticfiles"))
-ARCHVISUAL_TEMP_ROOT = os.environ.get(
-    "ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT",
-    str(REPO_OUTPUT_ROOT / "tmp"))
+STATIC_ROOT = str(archvisual_env.static_root())
+ARCHVISUAL_TEMP_ROOT = str(archvisual_env.temp_root())
 
 
 # Quick-start development settings - unsuitable for production

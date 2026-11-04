@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const baseUrl = process.argv[2] || 'http://127.0.0.1:8097';
 const fixture = process.env.HEAT_TEST_FIXTURE || path.resolve(__dirname, '../examples/metricview.h5');
-const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../../__output__/archvisual/heat_multiple_plot');
+const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__output__/heat_multiple_plot');
 const templateName = path.relative(path.resolve(__dirname, 'static/data'), path.join(output, 'roundtrip-template'));
 
 (async () => {

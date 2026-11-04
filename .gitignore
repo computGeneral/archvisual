@@ -1,2 +1,5 @@
 *__pycache__
 __output__
+.venv/
+.archvisual-python.lock
+.archvisual-release.lock
