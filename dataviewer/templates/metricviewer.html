@@ -6,7 +6,7 @@
     <title>MetricViewer</title>
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
-    <script src="/static/js/metric_heat.js?v=12"></script>
+    <script src="/static/js/metric_heat.js?v=13"></script>
     <link rel="icon" href="/static/image/metricviewer.ico" type="image/x-icon">
     <script src="/static/js/split_view.js?v=2"></script>
     <link rel="stylesheet" href="/static/css/split_view.css?v=2">
@@ -21,6 +21,11 @@
             width: 100%;
             height: 100%;
         }
+
+        #reloadLoadItem { display:block; width:100%; border:0; background:#fff;
+            text-align:left; font:inherit; padding:4px 12px; cursor:pointer; }
+        #reloadLoadItem:hover:not(:disabled) { background:#e0e0e0; }
+        #reloadLoadItem:disabled { color:#999; cursor:default; }
 
         .header {
             width: 100%;
@@ -357,6 +362,7 @@
                     <button id="initBtn" type="button" onclick="toggleLoadMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load ▾</button>
                     <input type="file" id="fileInput" style="display: none;">
                     <div id="loadMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
+                        <button id="reloadLoadItem" type="button" onclick="reloadFile()" disabled>reload</button>
                         <div style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="loadLocal()">Local File</div>
                         <div style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="showServerPathInput()">Server File</div>
                     </div>
@@ -487,6 +493,9 @@
     var splitDirection = 'horizontal';
     var activePanel = 1; // 1 or 2
     var samplePeriods = {1: null, 2: null};
+    var loadedSources = {1: null, 2: null};
+    var metricEpoch = {1: 0, 2: 0};
+    var pendingLocalLoad = null, fileLoadBusy = false;
 
     // Panel 1 (primary)
     var dom = document.getElementById('container');
@@ -595,6 +604,7 @@
     function setActivePanel(panel) {
         activePanel = panel;
         updateSamplePeriodDisplay();
+        updateReloadMenu();
         var panel1 = document.getElementById('panel1');
         var panel2 = document.getElementById('panel2');
 
@@ -1254,7 +1264,7 @@
             rebuildMetricSelectDiv();
             return;
         }
-        var plotPanel = activePanel;
+        var plotPanel = activePanel, plotEpoch = metricEpoch[plotPanel];
         //var merge_check = document.getElementById('Merge');
         //var stack_check = document.getElementById('Stack');
         var group_name = document.getElementById('filterMetricGroup').value;
@@ -1314,6 +1324,7 @@
             }),
             success: function (res) {
                 if (res.code === 0) {
+                    if (plotEpoch !== metricEpoch[plotPanel]) return;
                     append_metrics(res.data, plotPanel);
                     // Hide the metric selection dropdown after plotting
                     document.getElementById("MetricSelectDiv").style.display = "none";
@@ -1328,6 +1339,7 @@
     }
 
     function ClearAll(panel = activePanel, forceLine = false) {
+        ++metricEpoch[panel];
         if (!forceLine && metricHeat && metricHeat.isHeat(panel)) {
             metricHeat.clear(panel);
             return;
@@ -1383,63 +1395,38 @@
         } finally { renderingLine = false; }
     }
 
-    // Function to update all existing series data without clearing them
-    function updateAll(newData, panel = 1) {
-        var isSecondary = panel === 2;
-        var targetChart = isSecondary ? myChart2 : myChart;
-        var targetTimeLine = isSecondary ? TimeLine2 : TimeLine;
-        var targetDataInterval = isSecondary ? DataInterval2 : DataInterval;
-        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
-
-        var option = targetChart.getOption();
-        var series = option.series || [];
-        var xAxis = option.xAxis || [];
-        var yAxis = option.yAxis || [];
-
-        // Update x axis with new timeline
-        for (var i = 0; i < xAxis.length; i++) {
-            xAxis[i].data = targetTimeLine;
-        }
-
-        // Update each series with new data
-        for (var i = 0; i < series.length; i++) {
-            var s = series[i];
-            var parts = s.id.split('&');
-            if (parts.length >= 2) {
-                var group_name = parts[0];
-                var signal_name = parts[1];
-
-                // Find corresponding data in newData
-                if (newData[group_name] && newData[group_name]['Sig'][signal_name]) {
-                    s.data = newData[group_name]['Sig'][signal_name];
-                }
-            }
-        }
-
-        // Update yAxis max values if 'duration' is used
-        for (var i = 0; i < yAxis.length; i++) {
-            if (yAxis[i].max === 'duration') {
-                yAxis[i].max = targetDataInterval;
-            }
-        }
-
-        targetChart.setOption({
-            xAxis: xAxis,
-            yAxis: yAxis,
-            series: series
+    // Reload replaces only values and the sample axis; chart layout and styles stay intact.
+    function updateAll(newData, panel, range) {
+        var chart = getPanelChart(panel), option = chart.getOption();
+        var times = panel === 2 ? TimeLine2 : TimeLine;
+        var groups = panel === 2 ? MetricSelectList2 : MetricSelectList;
+        var period = panel === 2 ? DataInterval2 : DataInterval;
+        var series = (option.series || []).map(function (entry) {
+            var separator = entry.id.indexOf('&');
+            var group = newData[entry.id.slice(0, separator)];
+            var values = group && group.Sig[entry.id.slice(separator + 1)];
+            return {id:entry.id, data:values || times.map(function () { return null; })};
         });
-
-        // Update zoom inputs
-        if (panel === activePanel) {
-            var targetZoomStart = isSecondary ? zoom_input_start2 : zoom_input_start;
-            var targetZoomEnd = isSecondary ? zoom_input_end2 : zoom_input_end;
-            var targetZoomDur = isSecondary ? zoom_output_dur2 : zoom_output_dur;
-
-            if (targetZoomStart && targetZoomEnd && targetZoomDur) {
-                targetZoomStart.value = targetTimeLine[0];
-                targetZoomEnd.value = targetTimeLine[targetTimeLine.length - 1];
-                targetZoomDur.value = targetZoomEnd.value - targetZoomStart.value + 1;
-            }
+        var end = Math.max(0, times.length - 1);
+        var start = Math.max(0, Math.min(end, range[0]));
+        end = Math.max(start, Math.min(end, range[1]));
+        chart.dispatchAction({type:'hideTip'});
+        chart.setOption({
+            xAxis:(option.xAxis || []).map(function (axis) { return {id:axis.id, data:times}; }),
+            yAxis:(option.yAxis || []).map(function (axis) {
+                return {id:axis.id, max:groups[axis.id].Max === 'duration' ? period : groups[axis.id].Max};
+            }),
+            series:series,
+            dataZoom:(option.dataZoom || []).map(function () {
+                return {start:null, end:null, startValue:start, endValue:end};
+            })
+        });
+        if ((option.xAxis || []).length && times.length) {
+            chart.dispatchAction({type:'dataZoom', startValue:start, endValue:end, disable_propagation:true});
+        } else if (panel === activePanel) {
+            zoom_input_start.value = times[start] === undefined ? '' : times[start];
+            zoom_input_end.value = times[end] === undefined ? '' : times[end];
+            zoom_output_dur.value = times.length ? times[end] - times[start] + 1 : '';
         }
     }
 
@@ -1467,7 +1454,7 @@
     }
 
     function ExportTemplate(isExport) {
-        var templatePanel = activePanel;
+        var templatePanel = activePanel, templateEpoch = metricEpoch[templatePanel];
         var template_name = document.getElementById('template_name').value;
         var isSecondary = activePanel === 2;
         var targetMetricSelectList = metricHeat && metricHeat.isHeat(templatePanel)
@@ -1503,6 +1490,7 @@
                 }),
                 success: function (res) {
                     if (res.code === 0) {
+                        if (templateEpoch !== metricEpoch[templatePanel]) return;
                         append_metrics(res.data, templatePanel)
                     } else {
                         alert(res.msg);
@@ -1947,6 +1935,7 @@
         chart.off('datazoom');
         chart.on('datazoom', function (event_params) {
             let zoom = chart.getModel().option.dataZoom[0];
+            timeLine = panelNum === 2 ? TimeLine2 : TimeLine;
             if (!renderingLine && metricHeat) metricHeat.syncLineZoom(panelNum, zoom);
             window['zoom_start_' + panelNum] = zoom.start;
             window['zoom_end_' + panelNum] = zoom.end;
@@ -2149,8 +2138,12 @@
     }
 
 
-    function ProcessH5(res, panel = 1){
+    function ProcessH5(res, panel = 1, reload = false){
         if (res.code === 0) {
+            ++metricEpoch[panel];
+            var reloadRange = lineSampleRange(panel, (panel === 2 ? TimeLine2 : TimeLine).length);
+            if (res.data.source) loadedSources[panel] = res.data.source;
+            updateReloadMenu();
             samplePeriods[panel] = samplePeriodFromConfig(res.data.config);
             updateSamplePeriodDisplay();
             var heatMeta = Object.assign({}, res.data, {times:res.data.times.slice()});
@@ -2205,6 +2198,15 @@
             var targetDom = isSecondary ? dom2 : dom;
             var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
             var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
+
+            if (reload) {
+                currentHoverSnapshot[panel] = null;
+                if (metricHeat) metricHeat.datasetReloaded(heatMeta, panel, res.reload, res.missing);
+                if (!metricHeat || !metricHeat.isHeat(panel)) updateAll(res.reload, panel, reloadRange);
+                if (panel === activePanel) rebuildMetricSelectDiv();
+                if (res.missing.length) alert('Absent from this file (shown without values): ' + res.missing.join(', '));
+                return;
+            }
 
             // Clear markers when loading new file
             markerPositions[panel] = [];
@@ -2344,7 +2346,7 @@
                         var snap = {
                             dataIndex: ndata[0].dataIndex,
                             time: ndata[0].axisValue,
-                            timeName: targetTimeNames[ndata[0].dataIndex] || '',
+                            timeName: (panel === 2 ? TimeNames2 : TimeNames)[ndata[0].dataIndex] || '',
                             groupName: '',
                             values: {}
                         };
@@ -2435,9 +2437,11 @@
             if (metricHeat) metricHeat.datasetLoaded(heatMeta, panel);
             if ((!metricHeat || !metricHeat.isHeat(panel)) && Object.keys(targetMetricSelectList).length) {
                 var query = JSON.parse(JSON.stringify(targetMetricSelectList));
+                var loadEpoch = metricEpoch[panel];
                 $.ajax({url:'/api/show/query', type:'POST', contentType:'application/json',
                     data:JSON.stringify({query:query, secondary:panel === 2}),
                     success:function (result) {
+                        if (loadEpoch !== metricEpoch[panel]) return;
                         if (result.code === 0) renderLineFromHeat(result.data, panel);
                         else alert(result.msg);
                     }, error:function () { alert('Failed to reload selected metrics'); }
@@ -2478,6 +2482,7 @@
             tmp_input.setAttribute("type", "checkbox");
             tmp_input.setAttribute("onclick", "MetricCheck(this)");
             tmp_input.setAttribute("value", currentMetricNames[i]);
+            tmp_input.checked = (isSecondary ? CurMetricSelectList2 : CurMetricSelectList).includes(currentMetricNames[i]);
             tmp_div.style.display = "none";
 
             tmp_text = document.createTextNode(currentMetricNames[i]);
@@ -2513,13 +2518,7 @@
             lineElement:function (panel) { return panel === 2 ? dom2 : dom; },
             resizeLine:function (panel) { var chart = getPanelChart(panel); if (chart) chart.resize(); },
             selection:function (panel) { return panel === 2 ? MetricSelectList2 : MetricSelectList; },
-            lineRange:function (panel, count) {
-                var chart = getPanelChart(panel), option = chart && chart.getOption();
-                var zoom = option && option.dataZoom;
-                var z = zoom && zoom[0] || {};
-                return [Math.max(0, z.startValue === undefined ? Math.round((count-1)*(z.start || 0)/100) : z.startValue),
-                    Math.min(count-1, z.endValue === undefined ? Math.round((count-1)*(z.end === undefined ? 100 : z.end)/100) : z.endValue)];
-            },
+            lineRange:lineSampleRange,
             renderLine:renderLineFromHeat,
             query:function (query, panel) {
                 return new Promise(function (resolve, reject) {
@@ -2541,34 +2540,73 @@
         //     }
         // });
         $('#fileInput').on('change', function (e) {
-            e.preventDefault();
-            var formData = new FormData();
-            var fileInput = e.target;
-            if (fileInput.files.length == 1) {
-                formData.append('file', fileInput.files[0]);
-                var uploadPanel = activePanel;
-                formData.append('secondary', uploadPanel === 2 ? 'true' : 'false');
-
-                $.ajax({
-                    url: '/api/show/upload',
-                    type: 'POST',
-                    data: formData,
-                    processData: false,
-                    contentType: false,
-                    success: function (res) {
-                        ProcessH5(res, uploadPanel);
-                    },
-                    error: function (xhr, status, error) {
-                        alert('Upload failed:', error);
-                    }
-                });
-            } else {
-                alert('Please select a file to upload. (Don\'t support multiple files.)');
+            var intent = pendingLocalLoad || {panel:activePanel, reload:false};
+            pendingLocalLoad = null;
+            var file = e.target.files[0];
+            if (!file || fileLoadBusy) return;
+            if (intent.reload && file.name !== loadedSources[intent.panel].name) {
+                alert('Please select the previously loaded file: ' + loadedSources[intent.panel].name);
+                return;
             }
+            var formData = new FormData();
+            formData.append('file', file);
+            formData.append('secondary', intent.panel === 2 ? 'true' : 'false');
+            if (intent.reload) formData.append('reloadQuery', JSON.stringify(reloadSelection(intent.panel)));
+            loadMetricFile({url:'/api/show/upload', data:formData, processData:false, contentType:false}, intent);
         });
+        document.getElementById('fileInput').addEventListener('cancel', function () { pendingLocalLoad = null; });
     });
 
+    function lineSampleRange(panel, count) {
+        var chart = getPanelChart(panel), option = chart && chart.getOption();
+        var z = option && option.dataZoom && option.dataZoom[0] || {};
+        return [Math.max(0, z.startValue === undefined ? Math.round((count-1)*(z.start || 0)/100) : z.startValue),
+            Math.min(count-1, z.endValue === undefined ? Math.round((count-1)*(z.end === undefined ? 100 : z.end)/100) : z.endValue)];
+    }
+
+    function reloadSelection(panel) {
+        return metricHeat && metricHeat.isHeat(panel) ? metricHeat.reloadSelection(panel)
+            : (panel === 2 ? MetricSelectList2 : MetricSelectList);
+    }
+
+    function updateReloadMenu() {
+        var item = document.getElementById('reloadLoadItem'), source = loadedSources[activePanel];
+        item.disabled = !source || fileLoadBusy;
+        item.title = !source ? 'Load a file first' : source.kind === 'local'
+            ? 'Select ' + source.name + ' again to reload it and keep plots' : 'Reload ' + source.path + ' and keep plots';
+    }
+
+    function reloadFile() {
+        document.getElementById('loadMenu').style.display = 'none';
+        var panel = activePanel, source = loadedSources[panel];
+        if (!source || fileLoadBusy) return;
+        if (source.kind === 'local') loadLocal(true);
+        else requestServerFile(source.path, panel, true);
+    }
+
+    function loadMetricFile(options, intent) {
+        if (fileLoadBusy) return;
+        fileLoadBusy = true; updateReloadMenu(); showLoading();
+        $.ajax(Object.assign({}, options, {type:'POST',
+            success:function (res) {
+                if (res.code !== 0) { alert(res.msg || 'File load failed'); return; }
+                ProcessH5(res, intent.panel, intent.reload);
+                if (intent.serverBrowser) hideServerBrowser();
+            },
+            error:function (xhr) { alert('File load failed: ' + (xhr.responseJSON && xhr.responseJSON.msg || xhr.responseText || 'Request failed')); },
+            complete:function () { fileLoadBusy = false; updateReloadMenu(); hideLoading(); }
+        }));
+    }
+
+    function requestServerFile(path, panel, reload) {
+        var data = {path:path, secondary:panel === 2};
+        if (reload) data.reloadQuery = reloadSelection(panel);
+        loadMetricFile({url:'/api/show/server_load', contentType:'application/json', data:JSON.stringify(data)},
+            {panel:panel, reload:reload, serverBrowser:!reload});
+    }
+
     function toggleLoadMenu() {
+        updateReloadMenu();
         var menu = document.getElementById('loadMenu');
         menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
     }
@@ -2581,9 +2619,13 @@
         }
     });
 
-    function loadLocal() {
+    function loadLocal(reload = false) {
+        if (fileLoadBusy) return;
         document.getElementById('loadMenu').style.display = 'none';
-        document.getElementById('fileInput').click();
+        pendingLocalLoad = {panel:activePanel, reload:reload};
+        var input = document.getElementById('fileInput');
+        input.value = ''; // Choosing the same local file must fire change again.
+        input.click();
     }
 
     function showServerPathInput() {
@@ -2716,29 +2758,7 @@
             alert('Please select a server file to load');
             return;
         }
-        showLoading();
-        $.ajax({
-            url: '/api/show/server_load',
-            type: 'POST',
-            contentType: 'application/json;charset=utf-8',
-            data: JSON.stringify({
-                path: filePath,
-                secondary: loadPanel === 2
-            }),
-            success: function (res) {
-                hideLoading();
-                if (res.code === 0) {
-                    ProcessH5(res, loadPanel);
-                    hideServerBrowser();
-                } else {
-                    alert(res.msg || 'Failed to load server file');
-                }
-            },
-            error: function (xhr, status, error) {
-                hideLoading();
-                alert('Server load failed: ' + (xhr.responseText || error));
-            }
-        });
+        requestServerFile(filePath, loadPanel, false);
     }
 
     function showLoading() {

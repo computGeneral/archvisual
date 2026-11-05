@@ -171,6 +171,16 @@ Or replace `localhost` with your server's IP address if running remotely.
 
 ## MetricViewer Heat mode
 
+**Load → reload** rereads the active panel's current CSV/H5 and keeps existing
+Line/Heat plots, metric order, display settings, zoom and scroll. Server files
+reload from their last successfully loaded path; local files ask you to select
+the same filename again (the browser does not expose a reusable disk path).
+Canceling or a read/validation failure keeps the current plots and data. Missing
+metrics retain their positions with no values and an explicit notice; they can
+recover on a later reload. Heat statistics refresh from all samples in the new
+file. A shorter file clamps the visible sample range. Other split panels are
+unaffected, and pinned Line cards remain frozen snapshots.
+
 Load an `.h5` file through **Load → Local File / Server File**, choose
 **Heat** in the Line/Heat selector, search for metrics (press Enter), and click **Plot**.
 Each **Plot** appends a new heatmap below the existing ones, containing only

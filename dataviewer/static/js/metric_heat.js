@@ -98,7 +98,7 @@
     function newState() {
         return { mode: 'line', maps: [], times: [], axisTop: defaultAxisTop, config: {}, columnWidth: maxColumnWidth,
             start: 0, end: -1, scrollLeft: 0, pendingScrollLeft: null, nextPlot: 1,
-            token: 0, selected: null, notice: '', loaded: false, waiting: false, sidebarWidth: defaultSidebarWidth };
+            token: 0, selected: null, notice: '', missing: [], loaded: false, waiting: false, sidebarWidth: defaultSidebarWidth };
     }
 
     function install(adapter) {
@@ -519,8 +519,15 @@
                     if (!panelWidget(panel).status.classList.contains('heat-error')) status(panel, '');
                 }
             }
-            return adapter.query({ [m.key]: clone(m.group) }, panel).then(function (data) {
+            var query = clone(m.group), missing = removeOnError ? [] : query.Sig.filter(function (name) {
+                return s.missing.includes(name);
+            });
+            // Restoring existing plots across Line/Heat keeps reload's absent
+            // metrics as empty rows. New Plot/template queries stay strict.
+            query.Sig = query.Sig.filter(function (name) { return !missing.includes(name); });
+            return adapter.query({ [m.key]: query }, panel).then(function (data) {
                 if (!current()) return false;
+                missing.forEach(function (name) { data[m.key].Sig[name] = s.times.map(function () { return null; }); });
                 var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length);
                 m.data = data[m.key]; m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
                 summarize(panel, m); finishWaiting(); scheduleRender(panel); return true;
@@ -585,10 +592,36 @@
             isHeat: function (panel) { return states[panel].mode === 'heat'; },
             activate: function (panel) { active = panel; syncControls(); if (states[panel].mode === 'heat') rangeInputs(panel); },
             selection: selection,
+            reloadSelection: function (panel) {
+                // Include pending Plots so a successful reload can finish them
+                // from the new dataset without waiting for an older query.
+                var result = Object.create(null);
+                states[panel].maps.forEach(function (m) { result[m.key] = clone(m.group); });
+                return result;
+            },
+            datasetReloaded: function (meta, panel, data, missing) {
+                var s = states[panel];
+                ++s.token; s.waiting = false;
+                s.times = meta.times.slice(); s.config = meta.config || {};
+                s.axisTop = axisTop(s.times);
+                s.start = Math.max(0, Math.min(s.start, s.times.length - 1));
+                s.end = Math.min(Math.max(s.start, s.end), s.times.length - 1);
+                s.missing = missing.slice();
+                s.notice = missing.length ? 'Absent from this file: ' + missing.join(', ') : '';
+                if (s.mode !== 'heat') return;
+                s.maps.forEach(function (m) {
+                    ++m.token;
+                    m.rows = rowsFromGroups({[m.key]:m.group}, data, s.times.length);
+                    m.data = data[m.key]; m.loaded = true; m.busy = false; m.error = '';
+                    m.widget.viewKey = null;
+                });
+                s.loaded = true; status(panel, ''); show(panel);
+            },
             datasetLoaded: function (meta, panel) {
                 var s = states[panel], groups = selection(panel), heat = s.mode === 'heat';
                 endSidebarDrag(panel);
                 ++s.token; s.loaded = false; s.selected = null; s.notice = ''; s.waiting = false;
+                s.missing = [];
                 s.times = meta.times.slice(); s.config = meta.config || {}; s.start = 0; s.end = s.times.length - 1;
                 s.axisTop = axisTop(s.times);
                 s.scrollLeft = 0; s.pendingScrollLeft = null;

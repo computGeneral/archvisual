@@ -52,6 +52,31 @@ def page_crossviewer(request):
 def page_perfettoviewer(request):
     return render(request, 'perfettoviewer.html')
 
+
+def _loaded_response(title, data, config, secondary, source, reload_query=None):
+    """Prepare metadata and reload values before replacing the current dataset."""
+    result = {'code': 0, 'data': {
+        'title': title, 'config': config.to_dict(),
+        'times': data.index.to_list(), 'names': [''] * len(data.index),
+        'signal': data.columns.to_list(), 'source': source,
+    }}
+    try:
+        if reload_query is not None:
+            if isinstance(reload_query, str):
+                reload_query = json.loads(reload_query)
+            missing = []
+            result['reload'] = get_query_data(reload_query, heat=True, data=data, missing=missing)
+            result['missing'] = list(dict.fromkeys(missing))
+        response = HttpResponse(json.dumps(result), content_type='application/json')
+    except (ValueError, TypeError) as exc:
+        return HttpResponse(json.dumps({'code': 1, 'msg': str(exc)}),
+                            content_type='application/json', status=400)
+    gl.clear(secondary=secondary)
+    gl.set_value('title', title, secondary=secondary)
+    gl.set_value('config', config, secondary=secondary)
+    gl.set_value('data', data, secondary=secondary)
+    return response
+
 #def page_traceviewerv2(request):
 #    return render(request, 'traceviewerv2.html')
 
@@ -100,27 +125,8 @@ def api_show_upload(request):
     #    if 'tmp_file' in locals() and os.path.exists(tmp_file.name):
     #        os.unlink(tmp_file.name)
 
-    gl.clear(secondary=secondary)
-    gl.set_value('title', file.name, secondary=secondary)
-    gl.set_value('config', now_config, secondary=secondary)
-    gl.set_value('data', now_data, secondary=secondary)
-    #print(now_data.index.to_list())
-    # 'names' is the per-sample event-label axis (one entry per time sample,
-    # '&'-joined if multiple events). The source data carries no event labels,
-    # so emit one empty string per sample — keeps names[dataIndex] in range
-    # and avoids 'undefined' in the tooltip. ('signal' holds the column names.)
-    sample_count = len(now_data.index)
-    res = {
-        'code': 0,
-        'data': {
-            'title': file.name,
-            'config': now_config.to_dict(),
-            'times': now_data.index.to_list(),
-            'names': [''] * sample_count,
-            'signal': now_data.columns.to_list(),
-        }
-    }
-    return HttpResponse(json.dumps(res), content_type='application/json')
+    return _loaded_response(file.name, now_data, now_config, secondary,
+                            {'kind': 'local', 'name': file.name}, request.POST.get('reloadQuery'))
 
 
 @csrf_exempt
@@ -171,26 +177,9 @@ def api_show_server_load(request):
         return HttpResponse(json.dumps({'code': 1, 'msg': f'Error reading file: {str(e)}'}),
                             content_type='application/json')
 
-    title = os.path.basename(file_path)
-    gl.clear(secondary=secondary)
-    gl.set_value('title', title, secondary=secondary)
-    gl.set_value('config', now_config, secondary=secondary)
-    gl.set_value('data', now_data, secondary=secondary)
-
-    # 'names' is the per-sample event-label axis (one entry per time sample).
-    # Source data carries no event labels, so emit one empty string per sample.
-    sample_count = len(now_data.index)
-    res = {
-        'code': 0,
-        'data': {
-            'title': title,
-            'config': now_config.to_dict(),
-            'times': now_data.index.to_list(),
-            'names': [''] * sample_count,
-            'signal': now_data.columns.to_list(),
-        }
-    }
-    return HttpResponse(json.dumps(res), content_type='application/json')
+    return _loaded_response(os.path.basename(file_path), now_data, now_config, secondary,
+                            {'kind': 'server', 'path': os.path.abspath(file_path)},
+                            req_data.get('reloadQuery'))
 
 
 @csrf_exempt
@@ -331,12 +320,12 @@ def api_show_server_file(request):
 #     return HttpResponse(json.dumps(res), content_type='application/json')
 
 
-def get_query_data(query_list, secondary=False, heat=False) -> dict:
+def get_query_data(query_list, secondary=False, heat=False, data=None, missing=None) -> dict:
     query_data = {}
     state = gl.get_all(secondary=secondary)
-    if heat and 'data' not in state:
+    if heat and data is None and 'data' not in state:
         raise ValueError('Load a metrics file before plotting')
-    exist_obj = state['data']
+    exist_obj = state['data'] if data is None else data
     if heat and not isinstance(query_list, dict):
         raise ValueError('Metric query must be an object')
     for key, sigs in query_list.items():
@@ -348,7 +337,11 @@ def get_query_data(query_list, secondary=False, heat=False) -> dict:
         query_data[key]['Sig'] = {}
         for sig in sigs['Sig']:
             if heat and sig not in exist_obj.columns:
-                raise ValueError(f'Metric not found: {sig}')
+                if missing is None:
+                    raise ValueError(f'Metric not found: {sig}')
+                missing.append(sig)
+                query_data[key]['Sig'][sig] = [None] * len(exist_obj.index)
+                continue
             if sig in exist_obj.columns:
                 if heat:
                     values = exist_obj.loc[:, sig]

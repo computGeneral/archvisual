@@ -40,7 +40,7 @@ class HeatQueryTests(SimpleTestCase):
     def write_h5(self, frame, name='metrics.h5'):
         path = Path(self.temp.name) / name
         with pd.HDFStore(path, mode='w') as store:
-            store.put('data', frame)
+            store.put('data', frame, format='table' if not frame.columns.is_unique else 'fixed')
             store.put('config', pd.Series({'ClockGHz': 1.6, 'SamplePeriod': 100}))
         return path
 
@@ -121,6 +121,63 @@ class HeatQueryTests(SimpleTestCase):
         response = self.post('/api/show/query', {'query': {'g': {'Max': 10, 'Stack': False, 'Sig': ['port']}}})
         self.assertEqual(response.json(), {'code': 0, 'data': {
             'g': {'Max': 10, 'Stack': False, 'Sig': {'port': [0.0, 5.0]}}}})
+
+    def test_reload_returns_values_missing_placeholders_and_resolved_source(self):
+        path = self.write_h5(pd.DataFrame({'port': [7, 9]}))
+        query = {'first': {'Max': 30, 'Stack': True, 'Sig': ['gone', 'port']},
+                 'second': {'Sig': ['port'], 'Heat': {'color': 'row'}}}
+        response = self.post('/api/show/server_load', {
+            'path': str(path), 'reloadQuery': query}).json()
+        self.assertEqual(response['data']['source'], {'kind': 'server', 'path': str(path)})
+        self.assertEqual(response['missing'], ['gone'])
+        self.assertEqual(response['reload']['first'], {
+            'Max': 30, 'Stack': True, 'Sig': {'gone': [None, None], 'port': [7, 9]}})
+        self.assertEqual(response['reload']['second']['Heat'], {'color': 'row'})
+        self.assertEqual(response['reload']['second']['Sig']['port'], [7, 9])
+
+    def test_csv_local_reload_updates_only_its_panel(self):
+        self.load_csv('server', 'port,1,2\n')
+        response = self.client.post('/api/show/upload', {
+            'file': SimpleUploadedFile('local.csv', b'sample,100,200\nsamplePeriod,100\nport,8,9\n'),
+            'secondary': 'true', 'reloadQuery': json.dumps({'g': {'Sig': ['port']}})}).json()
+        self.assertEqual(response['data']['source'], {'kind': 'local', 'name': 'local.csv'})
+        self.assertEqual(response['reload']['g']['Sig']['port'], [8, 9])
+        self.assertEqual(response['data']['config']['SamplePeriod'], 100)
+        self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [1, 2])
+        self.assertEqual(self.query(['port'], secondary=True).json()['data']['ports']['Sig']['port'], [8, 9])
+
+    def test_failed_reload_validation_keeps_previous_backend_data(self):
+        self.load_csv('server', 'port,1,2\n')
+        for frame in [pd.DataFrame({'port': ['abc']}),
+                      pd.DataFrame([[1, 2]], columns=['port', 'port'])]:
+            path = self.write_h5(frame)
+            for method in ['server', 'upload']:
+                with self.subTest(frame=str(frame), method=method):
+                    query = {'g': {'Sig': ['port']}}
+                    if method == 'server':
+                        response = self.post('/api/show/server_load', {'path': str(path), 'reloadQuery': query})
+                    else:
+                        response = self.client.post('/api/show/upload', {
+                            'file': SimpleUploadedFile(path.name, path.read_bytes()), 'reloadQuery': json.dumps(query)})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertEqual(response.json()['code'], 1)
+                    self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [1, 2])
+
+    def test_reload_empty_plot_and_invalid_query(self):
+        path = self.write_h5(pd.DataFrame({'port': [7]}))
+        self.assertEqual(self.post('/api/show/server_load', {
+            'path': str(path), 'reloadQuery': {}}).json()['reload'], {})
+        for query in ['{', [], {'g': {'Sig': 'port'}}]:
+            response = self.post('/api/show/server_load', {'path': str(path), 'reloadQuery': query})
+            self.assertEqual(response.status_code, 400)
+
+    def test_reload_relative_server_source_is_absolute(self):
+        folder = Path(self.temp.name) / 'dataviewer' / 'static' / 'data'
+        folder.mkdir(parents=True)
+        (folder / 'metrics.csv').write_text('port,1,2\n')
+        with self.settings(BASE_DIR=Path(self.temp.name)):
+            response = self.post('/api/show/server_load', {'path': 'metrics.csv'}).json()
+        self.assertEqual(response['data']['source']['path'], str(folder / 'metrics.csv'))
 
     def test_invalid_json_and_missing_query_are_client_errors(self):
         for payload in ['{', '[]', '{}']:
