@@ -1,0 +1,20 @@
+.resizable-split > .split-panel { box-sizing: border-box; }
+.resizable-split > .split-resizer {
+    flex: 0 0 2px;
+    align-self: stretch;
+    box-sizing: border-box;
+    background: #d5dbe2;
+    cursor: row-resize;
+    touch-action: none;
+    user-select: none;
+    position: relative;
+    z-index: 12;
+}
+.resizable-split.horizontal > .split-resizer { cursor: col-resize; }
+.resizable-split > .split-resizer[hidden] { display: none; }
+.split-resizer:hover, .split-resizer:focus-visible { background: #8ab4e8; outline: none; }
+.split-dragging, .split-dragging * {
+    cursor: var(--split-drag-cursor) !important;
+    user-select: none !important;
+}
+.split-drag-shield { position: fixed; inset: 0; z-index: 2147483647; }

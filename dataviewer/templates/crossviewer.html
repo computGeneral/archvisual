@@ -5,6 +5,8 @@
     <meta charset="UTF-8">
     <title>Metric vs. Trace</title>
     <link rel="icon" href="/static/image/visualizer.ico" type="image/x-icon">
+    <script src="/static/js/split_view.js?v=2"></script>
+    <link rel="stylesheet" href="/static/css/split_view.css?v=2">
     <style>
         * {
             margin: 0;
@@ -33,6 +35,7 @@
 
         .content {
             flex: 1;
+            min-height: 0;
             width: 100%;
             overflow: hidden;
             position: relative;
@@ -148,6 +151,10 @@
             <p>(c) Copyright 2016-2026 computGene@gmail.com. All Rights Reserved</p>
         </div>
     </div>
+<script>
+    var splitLayout = SplitView.install(document.getElementById('splitContainer'),
+        document.getElementById('metricPanel'), document.getElementById('tracePanel'), 'horizontal');
+</script>
 </body>
 
 </html>

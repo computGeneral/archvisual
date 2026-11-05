@@ -4,6 +4,8 @@
 <head>
     <title>TraceViewer</title>
     <link rel="icon" href="/static/image/traceviewer.ico" type="image/x-icon">
+    <script src="/static/js/split_view.js?v=2"></script>
+    <link rel="stylesheet" href="/static/css/split_view.css?v=2">
     <style>
         * {
             margin: 0;
@@ -38,6 +40,7 @@
 
         .content {
             flex: 1;
+            min-height: 0;
             width: 100%;
             overflow: hidden;
             position: relative;
@@ -187,6 +190,43 @@
     var splitDirection = 'horizontal';
     var activePanel = 1;
 
+    var splitLayout = SplitView.install(document.getElementById('splitContainer'),
+        document.getElementById('panel1'), document.getElementById('panel2'));
+
+    // Catapult can resize its canvas from a queued draw before a resize event.
+    // Preserve world bounds at the canvas update itself; only the main timeline
+    // drawing container owns the shared horizontal display transform.
+    function preserveTraceRange(frame) {
+        var child = frame.contentWindow;
+        if (child.archvisualResizeInstalled || !child.tr) return;
+        child.archvisualResizeInstalled = true;
+        var prototype = child.tr.ui.tracks.DrawingContainer.prototype;
+        var update = prototype.updateCanvasSizeIfNeeded_;
+        prototype.updateCanvasSizeIfNeeded_ = function () {
+            var view = child._tview;
+            if (!view || this !== view.modelTrackContainer_ || !view.model || view.model.bounds.isEmpty) {
+                return update.apply(this, arguments);
+            }
+            // Hidden/narrow panes retain the last valid canvas until space returns.
+            if (this.getBoundingClientRect().width <= child.tr.ui.b.constants.HEADING_WIDTH) return;
+            var oldWidth = this.canvas.width;
+            var transform = view.viewport_.currentDisplayTransform.clone();
+            var left = transform.xViewToWorld(0), right = transform.xViewToWorld(oldWidth);
+            var result = update.apply(this, arguments);
+            var width = this.canvas.width;
+            if (oldWidth > 0 && width > 0 && width !== oldWidth && right > left) {
+                transform.xSetWorldBounds(left, right, width);
+                view.viewport_.setDisplayTransformImmediately(transform);
+            }
+            return result;
+        };
+    }
+    ['catapult_frame1', 'catapult_frame2'].forEach(function (id) {
+        var frame = document.getElementById(id);
+        frame.addEventListener('load', function () { preserveTraceRange(frame); });
+        if (frame.contentDocument.readyState === 'complete') preserveTraceRange(frame);
+    });
+
     function setSplitMode(mode) {
         var panel2 = document.getElementById('panel2');
         var splitContainer = document.getElementById('splitContainer');
@@ -207,6 +247,8 @@
                 splitContainer.classList.remove('horizontal');
             }
         }
+
+        splitLayout.setMode(mode);
 
         // Split state indicator now managed by catapult via SPLIT_ACK
     }

@@ -8,6 +8,8 @@
     <script src="/static/js/jquery-3.4.0.js"></script>
     <script src="/static/js/metric_heat.js?v=12"></script>
     <link rel="icon" href="/static/image/metricviewer.ico" type="image/x-icon">
+    <script src="/static/js/split_view.js?v=2"></script>
+    <link rel="stylesheet" href="/static/css/split_view.css?v=2">
     <style type="text/css">
         * {
             margin: 0;
@@ -500,6 +502,11 @@
     var myChart2 = null;
     var lastClickedTarget2 = { type: null, name: null };
 
+    var splitLayout = SplitView.install(document.getElementById('splitContainer'),
+        document.getElementById('panel1'), document.getElementById('panel2'));
+    SplitView.observeChart(dom, function () { return myChart; });
+    SplitView.observeChart(dom2, function () { return myChart2; });
+
     // Data for panel 2
     var DataInterval2 = -1;
     var Title2 = null;
@@ -538,25 +545,6 @@
     function setSplitMode(mode) {
         document.getElementById('splitMenu').style.display = 'none';
 
-        // Save current zoom state before toggling
-        var savedZoom1 = null;
-        if (myChart) {
-            try {
-                var option = myChart.getModel().option;
-                if (option && option.dataZoom && option.dataZoom.length > 0) {
-                    var zoom1 = option.dataZoom[0];
-                    savedZoom1 = {
-                        start: zoom1.start,
-                        end: zoom1.end,
-                        startValue: zoom1.startValue,
-                        endValue: zoom1.endValue
-                    };
-                }
-            } catch (e) {
-                console.log('Could not save zoom state:', e);
-            }
-        }
-
         var panel2 = document.getElementById('panel2');
         var splitContainer = document.getElementById('splitContainer');
         var panel1Header = document.getElementById('panel1Header');
@@ -585,20 +573,7 @@
 
         updateSplitMenuIndicator();
 
-        setTimeout(function() {
-            if (myChart) {
-                myChart.resize();
-                if (savedZoom1) {
-                    myChart.dispatchAction({
-                        type: 'dataZoom',
-                        start: savedZoom1.start,
-                        end: savedZoom1.end,
-                        startValue: savedZoom1.startValue,
-                        endValue: savedZoom1.endValue
-                    });
-                }
-            }
-        }, 100);
+        splitLayout.setMode(mode);
     }
 
     // Set active panel for operations
@@ -2148,9 +2123,6 @@
             return removeMarkerById(chart, panelNum, id);
         };
 
-        window.addEventListener('resize', function() {
-            chart.resize();
-        });
     }
 
 
