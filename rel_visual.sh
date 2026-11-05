@@ -14,6 +14,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
 VERSION_FILE="$PROJECT_ROOT/version.txt"
+RELEASE_README="$PROJECT_ROOT/scripts/README.release.md"
 MODULE_OUTPUT="$(python3 -B -c 'from scripts.paths import output_root; print(output_root())')"
 RELEASE_DIR="$(python3 -B -c 'from scripts.paths import release_root; print(release_root())')"
 STAGING_ROOT="$MODULE_OUTPUT/.release-staging"
@@ -40,6 +41,11 @@ case "$ARG" in
         exit 1
         ;;
 esac
+
+if [[ ! -f "$RELEASE_README" || ! -s "$RELEASE_README" ]]; then
+    echo "ERROR: release README is missing or empty: $RELEASE_README" >&2
+    exit 1
+fi
 
 # Serializes version reads and publication even when output overrides differ.
 mkdir -p "$MODULE_OUTPUT" "$RELEASE_DIR" "$STAGING_ROOT"
@@ -129,9 +135,10 @@ if [[ "$OS_TAG" != windows && ! -x "$BINARY_DIR/$EXECUTABLE_NAME" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Give the package its candidate version without changing the source version.
+# 6. Add the candidate version and binary-package usage instructions.
 # ---------------------------------------------------------------------------
 cp "$STAGE_DIR/version.candidate" "$BINARY_DIR/version.txt"
+cp "$RELEASE_README" "$BINARY_DIR/README.md"
 
 # ---------------------------------------------------------------------------
 # 7. Build a temporary archive beside its destination and verify all payloads.

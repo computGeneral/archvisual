@@ -8,6 +8,7 @@ import importlib.util
 import io
 import os
 import platform
+import shlex
 import shutil
 import signal
 import subprocess
@@ -126,6 +127,40 @@ if mode == 'external-version':
         self.assertEqual(self.old.read_bytes(), b'previous version archive')
         self.assertEqual(self.legacy.read_bytes(), b'legacy archive outside staging')
         release_tools.verify_archive(self.destination, '1.2.4', release_tools.platform_tags()[2])
+        with tarfile.open(self.destination, 'r:bz2') as archive:
+            with archive.extractfile('archvisual/README.md') as stream:
+                self.assertEqual(stream.read(), (PROJECT / 'scripts/README.release.md').read_bytes())
+        self.assert_clean()
+
+    def test_invalid_readme_source_stops_before_build_and_preserves_releases(self):
+        readme = self.project / 'scripts/README.release.md'
+        readme.unlink()
+        for kind in ['missing', 'empty', 'directory']:
+            with self.subTest(kind=kind):
+                if kind == 'empty':
+                    readme.write_bytes(b'')
+                elif kind == 'directory':
+                    readme.unlink()
+                    readme.mkdir()
+                result = self.run_release()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('release README is missing or empty', result.stderr)
+                self.assertFalse((self.repo / 'observed-version.txt').exists())
+                self.assert_preserved()
+                self.assert_clean()
+
+    def test_archive_without_readme_is_not_published(self):
+        # Simulate successful archiving that silently omits the documentation.
+        folder = self.case / 'fake-bin'
+        folder.mkdir()
+        command = folder / 'tar'
+        command.write_text('#!/bin/bash\nexec ' + shlex.quote(shutil.which('tar')) +
+                           ' --exclude=archvisual/README.md "$@"\n')
+        command.chmod(0o755)
+        result = self.run_release(env={'PATH': str(folder) + os.pathsep + self.env['PATH']})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Release archive is missing README.md', result.stderr)
+        self.assert_preserved()
         self.assert_clean()
 
     def test_build_failure_keeps_version_and_old_packages(self):
@@ -414,12 +449,35 @@ class ArchiveAndPlatformTests(ReleaseFixture):
     def test_wrong_archive_version_is_rejected(self):
         archive = self.case / 'candidate.tar.bz2'
         with tarfile.open(archive, 'w:bz2') as stream:
-            for name, content in [('archvisual/archvisual', b'executable fixture'), ('archvisual/version.txt', b'0.0.0\n')]:
+            for name, content in [('archvisual/archvisual', b'executable fixture'),
+                                  ('archvisual/version.txt', b'0.0.0\n'),
+                                  ('archvisual/README.md', b'release instructions')]:
                 entry = tarfile.TarInfo(name)
                 entry.size = len(content)
                 stream.addfile(entry, io.BytesIO(content))
         with self.assertRaisesRegex(ValueError, 'version does not match'):
             release_tools.verify_archive(archive, '1.2.4', 'archvisual')
+
+    def test_archive_readme_must_be_present_nonempty_and_regular(self):
+        for kind in ['missing', 'empty', 'directory', 'symlink']:
+            with self.subTest(kind=kind):
+                path = self.case / (kind + '.tar.bz2')
+                with tarfile.open(path, 'w:bz2') as archive:
+                    for name, content in [('archvisual/archvisual', b'executable fixture'),
+                                          ('archvisual/version.txt', b'1.2.4\n')]:
+                        entry = tarfile.TarInfo(name)
+                        entry.size = len(content)
+                        archive.addfile(entry, io.BytesIO(content))
+                    if kind != 'missing':
+                        readme = tarfile.TarInfo('archvisual/README.md')
+                        if kind == 'directory':
+                            readme.type = tarfile.DIRTYPE
+                        elif kind == 'symlink':
+                            readme.type = tarfile.SYMTYPE
+                            readme.linkname = 'version.txt'
+                        archive.addfile(readme)
+                with self.assertRaisesRegex(ValueError, 'README.md'):
+                    release_tools.verify_archive(path, '1.2.4', 'archvisual')
 
 
 class BuildFailureTests(ReleaseFixture):

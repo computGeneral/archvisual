@@ -21,7 +21,7 @@ def platform_tags():
 
 
 def verify_archive(path, version, executable):
-    """Read all payloads and require the candidate executable and version."""
+    """Read all payloads and require the executable, version and release README."""
     with tarfile.open(path, 'r:bz2') as archive:
         binary = archive.getmember(f'archvisual/{executable}')
         marker = archive.getmember('archvisual/version.txt')
@@ -30,6 +30,12 @@ def verify_archive(path, version, executable):
         with archive.extractfile(marker) as stream:
             if stream.read() != (version + '\n').encode():
                 raise ValueError('Release archive version does not match the candidate')
+        try:
+            readme = archive.getmember('archvisual/README.md')
+        except KeyError as exc:
+            raise ValueError('Release archive is missing README.md') from exc
+        if not readme.isfile() or not readme.size:
+            raise ValueError('Release archive README.md must be a nonempty regular file')
         for member in archive:
             if member.isfile():
                 with archive.extractfile(member) as stream:
