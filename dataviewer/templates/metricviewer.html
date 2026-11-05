@@ -430,10 +430,9 @@
             -->
                 <input id="max_value" style="width: 60px; height:18px; padding-right:10px;" type="text" size="10"
                     value="-1" placeholder="set -1 to remove duration limit">
-                <!--
-                <label for="sync">Sync</label>
-            -->
-                <input type="checkbox" id="sync" name="sync" checked />
+                <button id="sync" type="button" aria-pressed="true"
+                    aria-label="Automatic Metric/Trace sync" title="Automatic sync enabled; click to disable"
+                    onclick="toggleTraceSync()" style="width:52px; height:21px; font-size:100%; padding:0 4px; box-sizing:border-box;">sync</button>
             </div>
             <!--
             <label for="Merge">Merge</label>
@@ -668,6 +667,18 @@
 
     // Remove z key event handlers - zoom selection now works with mouse drag only
 
+    function isTraceSyncEnabled() {
+        return document.getElementById('sync').getAttribute('aria-pressed') === 'true';
+    }
+
+    function toggleTraceSync() {
+        var button = document.getElementById('sync');
+        var enabled = !isTraceSyncEnabled();
+        button.setAttribute('aria-pressed', String(enabled));
+        button.textContent = enabled ? 'sync' : 'async';
+        button.title = enabled ? 'Automatic sync enabled; click to disable' : 'Automatic sync disabled; click to enable';
+    }
+
     window.bc = new BroadcastChannel('klxarch');
     window.SyncToTraceView = () => {
         const scale = parseFloat($("#sample_rate").prop("value"));
@@ -682,7 +693,7 @@
 
     window.bc.onmessage = function (e) {
         // console.info('Receive Channel data:', e.data);
-        if ($('#sync').prop('checked')) {
+        if (isTraceSyncEnabled()) {
             const scale = parseFloat($("#sample_rate").prop("value"));
             if (e.data.type == "SYNC_TRACE_TO_METRIC") {
                 let { center, duration } = e.data;
@@ -1949,7 +1960,7 @@
             }, 0);
             // Sync user changes; received Trace ranges already carry this
             // flag and must not echo a rounded sample range back to Trace.
-            if ($('#sync').prop('checked') && !event_params.disable_propagation) {
+            if (isTraceSyncEnabled() && !event_params.disable_propagation) {
                 window.SyncToTraceView();
             }
         });
