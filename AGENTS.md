@@ -12,14 +12,13 @@ For product/setup details, see [README.md](README.md).
 For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 
 ## Fast Start Commands
-- Prepare deps explicitly from this repository: `bash scripts/setup_python.sh --prepare --python python3`
-- Prepare with a different Python package index: `bash scripts/setup_python.sh --prepare -i https://pypi.org/simple`
-- Check only: `bash scripts/setup_python.sh --check --build`
-- Run dev server from this directory: `.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000`
+- Use the current terminal's `python3` and its installed dependencies.
+- Run dev server from this directory: `python3 -B archvisual.py runserver 0.0.0.0:8000`
 - Alternative run script: `bash ./run_visual.sh 8000`
-- Django checks: `.venv/bin/python -B archvisual.py check`
-- Tests: `.venv/bin/python -B archvisual.py test`
-- Environment/release/conversion tests: `.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v`
+- Django checks: `python3 -B archvisual.py check`
+- Tests: `python3 -B archvisual.py test`
+- Build: `python3 -B build_visual.py`
+- Path/entrypoint/release/conversion tests: `python3 -B -m unittest scripts.test_paths scripts.test_release_visual scripts.test_conversion_scripts -v`
 
 ## Code Map
 - Routing: `visualizer/urls.py`
@@ -28,9 +27,8 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - In-memory shared state for loaded datasets: `dataviewer/globalvar.py`
 - Frontend templates: `dataviewer/templates/*.html`
 - Static JS/assets: `dataviewer/static/`
-- Environment, release helpers, CSV conversion and support tests: `scripts/`
-- Shell environment entry: `scripts/setup_python.sh` (source for functions; execute for CLI)
-- Python environment entry: `scripts/archvisual_env.py` (import as `scripts.archvisual_env`)
+- Output paths, release helpers, CSV conversion and support tests: `scripts/`
+- Output path helper: `scripts/paths.py` (import as `scripts.paths`)
 
 ## Project-Specific Conventions
 - Keep API endpoints as function-based Django views in `dataviewer/views.py`.
@@ -43,27 +41,23 @@ For additional architecture notes, see [.claude/CLAUDE.md](.claude/CLAUDE.md).
 - `dataviewer/globalvar.py` is global mutable state and may have concurrency implications under multi-worker deployment.
 - `dataviewer/tests.py` is currently minimal. Add tests for behavior changes, especially API request/response flow.
 - ArchVisual is independent: never source/import environment scripts from a parent
-  repository. Maintain environment helpers in `scripts/setup_python.sh` and
-  `scripts/archvisual_env.py`. Python 3.10 and newer are admitted. Reference versions
-  are in `requirements.txt`; standalone preparation installs its package names
-  without applying the reference pins. Version differences warn; missing or
-  unimportable required packages fail the environment check.
-- Only explicit `scripts/setup_python.sh --prepare` may create/update the local
-  `.venv`. Checking, running and building never install packages. Consumers may
-  select an existing interpreter with `ARCHVISUAL_PYTHON`; do not discover a parent venv.
-- Preparation defaults to the Tsinghua PyPI mirror; `-i INDEX_URL` selects a
-  different package index for that invocation without changing pip configuration.
-- Preparation rejects an existing `.venv` with a different Python minor version
-  before pip runs. Do not automatically delete or replace that environment.
-- Interpreter admission is separate from verified compatibility: record the real
-  Python/dependency versions used by tests; never claim all admitted versions pass.
+  repository. Shell entrypoints invoke `python3` from PATH; Python subprocesses
+  use `sys.executable`. An activated virtual environment works through PATH too.
+- There is no interpreter selector, environment preparation, version comparison
+  or Python environment lock. Do not recreate that machinery. Installed packages
+  determine compatibility; report actual dependency errors. Running and building
+  never install Python packages or modify existing environments.
+- Python 3.10 or newer is the documented baseline. `requirements.txt` records
+  reference package versions and is still consumed by the parent workspace;
+  ArchVisual runtime/build do not read it or require exact matches. Record actual
+  Python/dependency versions in validation; do not claim untested combinations pass.
 - Outputs default to this repository's `__output__/`; use `ARCHVISUAL_OUTPUT_ROOT`
   for an explicit external output tree. Keep source files outside build cleanup.
-- Environment and release locks are per source repository, independent of output
-  overrides. Preserve release rollback and version protection.
+- The release lock is per source repository, independent of output overrides.
+  Preserve release rollback and version protection.
 
 ## Change Guidelines For Agents
 - Prefer minimal, targeted edits. Do not reformat unrelated files.
 - When changing endpoints, update both URL routes and corresponding frontend usage in templates/static JS.
-- Validate with at least `.venv/bin/python -B archvisual.py check` after backend changes.
+- Validate with at least `python3 -B archvisual.py check` after backend changes.
 - If adding nontrivial behavior, include or update tests under `dataviewer/tests.py`.

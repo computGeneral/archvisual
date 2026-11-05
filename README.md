@@ -4,96 +4,60 @@ A web-based visualization tool for exploring and analyzing architectural data us
 
 ## Requirements
 
-- Python 3.10 or newer and pip (compatibility depends on the installed packages)
-- Bash and flock for the shell wrappers; tar for release packaging
+- Python 3.10 or newer (compatibility depends on the installed packages)
+- Bash for shell wrappers; flock and tar for release packaging
 
-## Installation and environment
+## Running with the current Python
 
-ArchVisual is an independent repository. Run the following from its own root;
-no ArcheXplor checkout, parent scripts or parent Python environment are needed.
+ArchVisual uses `python3` from your terminal's `PATH`. This normally selects the
+system Python; an activated virtual environment works through the same PATH.
+Python build subprocesses use `sys.executable` to stay with the invoking
+interpreter. No interpreter selection variable or setup script is required.
+
+From this repository's root:
 
 ```bash
-bash scripts/setup_python.sh --prepare --python python3.10
-# Optional: choose a different Python package index for this preparation.
-bash scripts/setup_python.sh --prepare --python python3.10 -i https://pypi.org/simple
-bash scripts/setup_python.sh --check --build
 bash run_visual.sh 8000
+# Or run Django directly:
+python3 -B archvisual.py runserver 0.0.0.0:8000
+
+python3 -B archvisual.py check
+python3 -B archvisual.py test dataviewer --noinput
+python3 -B build_visual.py
 ```
 
-Preparation creates or updates only this repository's `.venv`. It reads package
-names from `requirements.txt` and lets pip resolve versions without applying
-the reference pins. Pip may adjust installed packages to satisfy their
-dependencies. Python versions newer than the 3.10 reference are admitted with
-a warning; the minimum version is 3.10.
-Preparation refuses a symlinked `.venv` or an existing venv with a different
-Python minor version, before any pip invocation. It does not delete or replace
-that environment. To change versions, move the old `.venv` aside explicitly
-or prepare a separate checkout with the intended `--python` interpreter.
-Preparation uses the Tsinghua PyPI mirror (`https://pypi.tuna.tsinghua.edu.cn/simple`)
-by default. `-i INDEX_URL` selects a different index for that invocation; it does
-not write pip configuration. Installation is explicit:
-checking, running and building never install packages. Build checks also verify
-Nuitka; runtime checks verify that the other required packages can be imported.
+The environment must already provide Django, pandas, NumPy and PyTables
+with their dependencies. Nuitka is needed for compilation.
+Scripts use installed packages without comparing versions, creating a virtual
+environment or installing dependencies. A missing or incompatible dependency
+reports its actual import/build error. `requirements.txt` remains a reference
+version list and a dependency input for the parent workspace; running and
+building ArchVisual do not read it or require matching versions.
 
-Python selection for shell entry points is: explicit `ARCHVISUAL_PYTHON`,
-this repository's `.venv`, then the virtual environment activated through
-`VIRTUAL_ENV`. An invalid explicit interpreter fails without falling back.
-The interpreter's venv path is preserved, and PATH is not rewritten.
-For example, an existing external environment can be selected explicitly:
+If a package is missing, install it into the Python environment you intend to
+use. For example, `python3 -m pip install tables` installs that
+package where pip is permitted to manage dependencies. Use your system's
+package-management policy when it manages Python packages.
 
-```bash
-ARCHVISUAL_PYTHON=/absolute/path/to/venv/bin/python bash run_visual.sh 8000
-```
+ArchVisual is independent of parent repository environment scripts.
+`scripts/paths.py` handles output paths only. Build, static, upload temporary
+and test outputs default to this repository's `__output__/`.
+`ARCHVISUAL_OUTPUT_ROOT` optionally overrides that root; `ARCHVISUAL_STATIC_ROOT`,
+`ARCHVISUAL_TEMP_ROOT` and `ARCHVISUAL_RELEASE_DIR` override individual paths.
+Relative overrides are anchored to the ArchVisual root, independent of the
+caller's directory. Source-path protection and existing
+`ARCHEXPLOR_ARCHVISUAL_*` output aliases are retained.
 
-The local `scripts/setup_python.sh` and `scripts/archvisual_env.py` own selection,
-checks, paths and the environment lock. Preparation takes an exclusive local
-lock; shell runs/releases and direct builds hold a shared lock. On Windows,
-direct Python build/preparation uses an exclusive file lock. The lock is tied
-to this source repository, so changing output directories cannot bypass it.
-The packaged application does not require environment setup scripts.
-`run_visual.sh` and `rel_visual.sh` source `scripts/setup_python.sh` for helper
-functions only; sourcing does not run its CLI or change shell options. Direct
-execution selects `--prepare` or `--check`. Python consumers import
-`scripts.archvisual_env`; release helpers and `test_*.py` also live in `scripts/`.
-The former root helper/test paths and `scripts/shared_env.sh` have been removed.
-
-```bash
-.venv/bin/python -B archvisual.py check
-.venv/bin/python -B archvisual.py test dataviewer --noinput
-.venv/bin/python -B build_visual.py
-```
-
-Default build, static, upload temporary and test outputs are inside this
-repository's `__output__/`. `ARCHVISUAL_OUTPUT_ROOT` overrides that root;
-`ARCHVISUAL_STATIC_ROOT` and `ARCHVISUAL_TEMP_ROOT` optionally override their
-individual directories. Relative paths are anchored to the ArchVisual root,
-independent of the caller's working directory. Output must not overlap source
-paths. An ArcheXplor consumer can explicitly set `ARCHVISUAL_PYTHON` and
-`ARCHVISUAL_OUTPUT_ROOT` to reuse its environment and output tree.
-
-Existing `ARCHEXPLOR_ARCHVISUAL_OUTPUT_ROOT`, `ARCHEXPLOR_ARCHVISUAL_STATIC_ROOT`
-and `ARCHEXPLOR_ARCHVISUAL_TEMP_ROOT` remain aliases; the corresponding
-`ARCHVISUAL_*` variable takes precedence. No parent helper is imported.
-
-The fixed versions in `requirements.txt` are a reference baseline, also used
-by the parent workspace. An installed package version that differs from this
-baseline produces a warning, but does not fail the check. Missing or
-unimportable required packages fail. Warnings do not guarantee compatibility:
-run the application checks for the actual Python and package combination.
-Nuitka is required only for build checks.
-
-Python 3.10.12 and 3.13.14 have been exercised on Linux x86_64 with specific
-dependency combinations. Other versions and platforms are not covered by those
-results. The Python 3.10.12 / Nuitka 4.3.4 Linux x86_64 standalone build
-was also verified after relocation, with the build source directory unavailable:
-environment path resolution, Django checks, 11 HDF5 tests and MetricViewer
-HTTP startup passed. Other Python/platform build combinations were not tested.
+Releases use `bash rel_visual.sh {maj|mid|min}`. The release lock protects
+version updates; builds use an isolated staging directory, verify archives
+before publication and retain rollback protection. This lock controls release
+publication, not the Python environment.
 
 ## CSV conversion scripts
 
 ```bash
-.venv/bin/python scripts/csv2hdf.py -i metrics.csv -o metrics.h5
-.venv/bin/python scripts/csv2json.py metrics.csv -o metrics.json
+python3 scripts/csv2hdf.py -i metrics.csv -o metrics.h5
+python3 scripts/csv2json.py metrics.csv -o metrics.json
 ```
 
 ## Input Data Format
@@ -279,8 +243,8 @@ Heat does not infer a physical time unit from the file name.
 Validation from the ArchVisual repository root:
 
 ```bash
-.venv/bin/python -B archvisual.py check
-.venv/bin/python -B archvisual.py test dataviewer --noinput
+python3 -B archvisual.py check
+python3 -B archvisual.py test dataviewer --noinput
 node dataviewer/test_metric_heat.cjs
 ```
 
@@ -366,5 +330,5 @@ Release failure-path tests use isolated repositories and injected build/tar
 failures; they do not compile Nuitka or publish a real release:
 
 ```bash
-.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v
+python3 -B -m unittest scripts.test_paths scripts.test_release_visual scripts.test_conversion_scripts -v
 ```

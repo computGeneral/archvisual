@@ -14,7 +14,7 @@ const baseUrl = process.argv[2] || 'http://127.0.0.1:8097';
 
 (async () => {
     fs.mkdirSync(output, { recursive: true });
-    const fixture = spawnSync('bash', ['-c', 'set -e\nsource \"$1/scripts/setup_python.sh\"\narchvisual_use_python\narchvisual_hold_python\nexec \"$ARCHVISUAL_PYTHON\" -B -', 'heat-statistics', root], {
+    const fixture = spawnSync('python3', ['-B', '-'], {
         cwd: root, encoding: 'utf8', env: { ...process.env, HEAT_STATS_OUTPUT: output }, input: `
 import json, math, os
 from pathlib import Path

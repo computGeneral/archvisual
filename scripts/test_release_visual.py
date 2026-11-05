@@ -1,8 +1,8 @@
 """Release control-flow fault injection; no real Nuitka build or publication.
 
 Run from the ArchVisual repository:
-  .venv/bin/python -B -m unittest scripts.test_release_visual -v
-Fixtures use the real local environment helper and the caller's interpreter.
+  python3 -B -m unittest scripts.test_release_visual -v
+Fixtures use the real path helper and the python3 selected through PATH.
 """
 import importlib.util
 import io
@@ -20,11 +20,10 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import release_tools
-from scripts import archvisual_env
+from scripts import paths
 
 PROJECT = Path(__file__).resolve().parent.parent
-PYTHON = Path(sys.executable)
-TEST_OUTPUT = Path(os.environ.get('ARCHVISUAL_RELEASE_TEST_OUTPUT', archvisual_env.output_root() / 'release-tests'))
+TEST_OUTPUT = Path(os.environ.get('ARCHVISUAL_RELEASE_TEST_OUTPUT', paths.output_root() / 'release-tests'))
 
 
 class ReleaseFixture(unittest.TestCase):
@@ -42,8 +41,7 @@ class ReleaseControlTests(ReleaseFixture):
         self.releases = self.module / 'releases'
         self.project.mkdir(parents=True)
         self.releases.mkdir(parents=True)
-        for name in ('rel_visual.sh', 'requirements.txt'):
-            shutil.copy2(PROJECT / name, self.project / name)
+        shutil.copy2(PROJECT / 'rel_visual.sh', self.project / 'rel_visual.sh')
         self.version = self.project / 'version.txt'
         self.version.write_text('1.2.3\n')
         self.old = self.releases / self.filename('1.2.3')
@@ -87,7 +85,6 @@ if mode == 'external-version':
         for key in list(self.env):
             if key.startswith(('ARCHVISUAL_', 'ARCHEXPLOR_ARCHVISUAL_')) or key == 'RELEASE_TEST_MODE':
                 self.env.pop(key)
-        self.env['ARCHVISUAL_PYTHON'] = str(PYTHON)
 
     def filename(self, version):
         system, machine, _ = release_tools.platform_tags()

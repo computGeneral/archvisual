@@ -1,5 +1,5 @@
 /* Integration: CSV upload/server load, real csv2hdf output, and toolbar/sync.
- * ARCHVISUAL_PYTHON selects the prepared interpreter; no packages are installed.
+ * Uses python3 from PATH; no packages are installed.
  * SAMPLE_PERIOD_TEST_OUTPUT selects fixtures, screenshots and result.json.
  */
 'use strict';
@@ -14,7 +14,6 @@ const checks = [], errors = [];
 const near = (actual, expected) => assert(Math.abs(actual - expected) < 1e-7, `${actual} != ${expected}`);
 
 (async () => {
-    assert(process.env.ARCHVISUAL_PYTHON, 'Set ARCHVISUAL_PYTHON to a prepared interpreter');
     fs.mkdirSync(output, { recursive: true });
     const fixtures = {};
     for (const [name, period] of [['period', 250], ['secondary', 125], ['absent', null]]) {
@@ -22,7 +21,7 @@ const near = (actual, expected) => assert(Math.abs(actual - expected) < 1e-7, `$
         fs.writeFileSync(fixtures[name], 'sample,0,1,2,3,4,5,6,7\n' +
             (period === null ? '' : `samplePeriod,${period}\n`) + 'port,0,1.25,2,3,4,5,6,7\n');
         fixtures[name + 'H5'] = path.join(output, name + '.h5');
-        execFileSync(process.env.ARCHVISUAL_PYTHON, ['-B', path.join(__dirname, 'csv2hdf.py'),
+        execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'),
             '-i', fixtures[name], '-o', fixtures[name + 'H5']], { cwd: output });
     }
     fixtures.headerless = path.join(output, 'headerless.csv');

@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts import archvisual_env as environment
+from scripts import paths
 from scripts.metric_csv import read_metric_csv
 
 
 class ConversionScriptTests(unittest.TestCase):
     def setUp(self):
-        output = environment.output_root() / 'conversion-tests'
+        output = paths.output_root() / 'conversion-tests'
         output.mkdir(parents=True, exist_ok=True)
         self.case_dir = tempfile.TemporaryDirectory(prefix='csv_conversion_', dir=output)
         self.addCleanup(self.case_dir.cleanup)

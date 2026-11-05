@@ -16,7 +16,7 @@ ArchVisual is a Django-based visualization project for metric and trace data ana
 
 ```
 archvisual/
-├── scripts/             # Environment, release, conversion helpers and support tests
+├── scripts/             # Output paths, release, conversion helpers and support tests
 ├── visualizer/          # Django project configuration
 ├── dataviewer/           # Main application
 │   ├── templates/         # HTML templates
@@ -37,41 +37,33 @@ archvisual/
 - Pandas
 - ECharts (JavaScript library)
 
-## Installation
-
-```shell
-bash scripts/setup_python.sh --prepare --python python3
-bash scripts/setup_python.sh --check --build
-```
-
 ## Running the Server
 
-```shell
-# Direct Django command
-.venv/bin/python -B archvisual.py runserver 0.0.0.0:8000
+Use the Python and dependencies already available through your terminal's PATH:
 
-# Using the provided shell script
+```shell
+python3 -B archvisual.py runserver 0.0.0.0:8000
+# Or use the provided wrapper:
 bash ./run_visual.sh 8000
 ```
 
-Access the application at: `http://0.0.0.0:8000/`
+Access the application at: `http://0.0.0.0:8000/`.
 
-ArchVisual maintains its own environment helpers, dependency pins and `.venv`.
-Do not source parent-repository scripts. Shell wrappers accept `ARCHVISUAL_PYTHON`
-and otherwise select the local `.venv` or the activated `VIRTUAL_ENV`. Output
-defaults to the local `__output__/` and can be overridden by `ARCHVISUAL_OUTPUT_ROOT`.
-Python 3.10 and newer are admitted. `requirements.txt` records reference pins;
-standalone preparation installs those package names without applying the pins.
-Different package versions warn, while missing or unimportable packages fail.
-Preparation must use the intended interpreter; it never silently replaces an
-existing venv of another version.
-Preparation defaults to the Tsinghua PyPI mirror; pass `-i INDEX_URL` to select
-a different package index for that invocation. CSV conversion scripts live in
-`scripts/`. Shell entrypoints source `scripts/setup_python.sh` for functions;
-only direct execution dispatches `--prepare` or `--check`. Python consumers
-import `scripts.archvisual_env`; release helpers use `scripts.release_tools`.
-Run support tests from the repository root with
-`.venv/bin/python -B -m unittest scripts.test_archvisual_env scripts.test_release_visual scripts.test_conversion_scripts -v`.
+ArchVisual does not select interpreters, prepare environments or compare package
+versions. Shell wrappers use `python3`; build subprocesses use `sys.executable`.
+Installed dependencies determine compatibility. `requirements.txt` retains its
+reference versions but is not read at startup or build time. Install missing
+packages separately according to the environment's package-management policy.
+
+Do not source parent-repository environment scripts. `scripts.paths` maintains
+output routing and source-path protection; outputs default to `__output__/`
+with optional `ARCHVISUAL_OUTPUT_ROOT` and individual path overrides. Release
+publication retains its source-local lock and rollback via `scripts.release_tools`.
+CSV converters and support tests live in `scripts/`. Run support tests with:
+
+```shell
+python3 -B -m unittest scripts.test_paths scripts.test_release_visual scripts.test_conversion_scripts -v
+```
 
 ## Recent Changes
 

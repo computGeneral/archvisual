@@ -1,1 +1,1 @@
-"""ArchVisual environment, release and conversion support scripts."""
+"""ArchVisual output paths, release and conversion support scripts."""
