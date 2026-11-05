@@ -8,9 +8,14 @@ import sys
 import pandas as pd
 import tables
 
+if __package__:
+    from .metric_csv import read_metric_csv
+else:
+    from metric_csv import read_metric_csv
+
 
 def csv_to_hdf5(csv_path: str, output: str = None) -> str:
-    df = pd.read_csv(csv_path, index_col=0)
+    data, config = read_metric_csv(csv_path)
 
     if output:
         h5_path = output
@@ -18,10 +23,10 @@ def csv_to_hdf5(csv_path: str, output: str = None) -> str:
         base, _ = os.path.splitext(csv_path)
         h5_path = base + ".h5"
 
-    hdf = pd.HDFStore(h5_path, mode='w', complevel=4, complib='blosc')
-    hdf.put("data", df.T, data_columns=True)
-    hdf.put("config", pd.Series({"ClockGHz": 1.6, "SamplePeriod":100}))
-    hdf.close()
+    with pd.HDFStore(h5_path, mode='w', complevel=4, complib='blosc') as hdf:
+        hdf.put("data", data, data_columns=True)
+        hdf.put("config", pd.Series({"ClockGHz": 1.6, **config}))
+    return h5_path
 
     #filters = tables.Filters(complevel=5, complib="blosc")
 

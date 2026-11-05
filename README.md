@@ -147,7 +147,34 @@ ArchVisual also supports **CSV (Comma-Separated Values)** files as an alternativ
 
 **File Requirements:**
 - File extension: `.csv`
-- Standard CSV format with headers
+- One metric per row, one sample per column. A `sample`/`Samples` header carries
+  sample labels; an empty top-left header cell is also supported. Headerless
+  files retain the first metric and use ordinal sample labels.
+
+CSV loading (upload or server path) and `scripts/csv2hdf.py` accept an optional
+`samplePeriod` metadata row, for example:
+
+```csv
+sample,100,200,300,400
+samplePeriod,100
+traffic_bytes,64,128,32,96
+active_cycles,80,90,70,85
+```
+
+`samplePeriod` is case insensitive and contains one finite positive number;
+trailing empty cells are allowed. The row may appear before or after the sample
+header or metrics. It is excluded from the metrics and written to the H5
+`config` Series as `SamplePeriod`; sample labels and metric values are retained
+in the sample-by-metric `data` DataFrame. Invalid or duplicate metadata rows
+report an error.
+
+MetricViewer displays `config.SamplePeriod` in the read-only sample-period field
+for the active file, in both Line and Heat modes. Missing metadata leaves the
+field empty, including for older CSV files: no default of 100 and no inference
+from sample-label differences. Existing H5 `config.SamplePeriod` is honored.
+Metric/Trace range synchronization requires a valid period and retains the
+existing sample-index/time-unit convention; this field does not declare sample
+labels to be physical timestamps.
 
 ## Server Management
 

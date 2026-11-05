@@ -424,7 +424,8 @@
                 <!--
                 <label for="sample_rate">Rate</label>
                 -->
-                <input id="sample_rate" style="width: 60px; height:18px; " type="text" size="10" value="100">
+                <input id="sample_rate" style="width: 60px; height:18px; " type="text" size="10" value="" readonly
+                    aria-label="Sample period" title="Sample period is not provided by this file">
                 <!--
                 <label for="zoom_start">Limit</label>
             -->
@@ -485,6 +486,7 @@
     var isSplitView = false;
     var splitDirection = 'horizontal';
     var activePanel = 1; // 1 or 2
+    var samplePeriods = {1: null, 2: null};
 
     // Panel 1 (primary)
     var dom = document.getElementById('container');
@@ -575,9 +577,24 @@
         splitLayout.setMode(mode);
     }
 
+    function samplePeriodFromConfig(config) {
+        var value = config && config.SamplePeriod;
+        if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') return null;
+        var period = Number(value);
+        return Number.isFinite(period) && period > 0 ? period : null;
+    }
+
+    function updateSamplePeriodDisplay() {
+        var period = samplePeriods[activePanel];
+        var field = document.getElementById('sample_rate');
+        field.value = period === null ? '' : String(period);
+        field.title = period === null ? 'Sample period is not provided by this file' : 'Sample period (from file metadata)';
+    }
+
     // Set active panel for operations
     function setActivePanel(panel) {
         activePanel = panel;
+        updateSamplePeriodDisplay();
         var panel1 = document.getElementById('panel1');
         var panel2 = document.getElementById('panel2');
 
@@ -680,41 +697,34 @@
     }
 
     window.bc = new BroadcastChannel('klxarch');
-    window.SyncToTraceView = () => {
-        const scale = parseFloat($("#sample_rate").prop("value"));
-        const msg = {
+    window.SyncToTraceView = (panel = activePanel) => {
+        const scale = samplePeriods[panel];
+        const start = window['zoom_start_val_' + panel];
+        const end = window['zoom_end_val_' + panel];
+        if (scale === null || !Number.isFinite(start) || !Number.isFinite(end)) return;
+        // Preserve the existing sample-index / Trace time-unit convention.
+        window.bc.postMessage({
             type: "SYNC_METRIC_TO_TRACE",
-            center: 0.001 * scale * (window.zoom_start_val + window.zoom_end_val) / 2,
-            duration: 0.001 * scale * (window.zoom_end_val - window.zoom_start_val)
-        }
-        // console.info("SYNC", window.zoom_start_val, msg);
-        window.bc.postMessage(msg);
+            center: 0.001 * scale * (start + end) / 2,
+            duration: 0.001 * scale * (end - start)
+        });
     }
 
     window.bc.onmessage = function (e) {
-        // console.info('Receive Channel data:', e.data);
-        if (isTraceSyncEnabled()) {
-            const scale = parseFloat($("#sample_rate").prop("value"));
-            if (e.data.type == "SYNC_TRACE_TO_METRIC") {
-                let { center, duration } = e.data;
-                // let start_val = (center - duration / 2) / (0.001 * scale);
-                // let end_val = (center + duration / 2) / (0.001 * scale);
-                // let all_dur = TimeLine[TimeLine.length - 1] - TimeLine[0];
-                // let start = (start_val - TimeLine[0]) / all_dur * 100;
-                // let end = (end_val - TimeLine[0]) / all_dur * 100;
-                let start_val = (center - duration / 2) / 0.1;
-                let end_val = (center + duration / 2) / 0.1;
-                let all_dur = TimeLine[TimeLine.length - 1] - TimeLine[0];
-                let start = (start_val - TimeLine[0]) / all_dur * scale;
-                let end = (end_val - TimeLine[0]) / all_dur * scale;
-                myChart.dispatchAction({
-                    type: 'dataZoom',
-                    start: start > 0 ? start : 0,
-                    end: end < 100 ? end : 100,
-                    disable_propagation: true
-                })
-            };
-        }
+        // Trace continues to target the primary Metric panel.
+        const scale = samplePeriods[1];
+        if (!isTraceSyncEnabled() || scale === null || e.data.type !== "SYNC_TRACE_TO_METRIC") return;
+        const { center, duration } = e.data;
+        const span = TimeLine[TimeLine.length - 1] - TimeLine[0];
+        if (!Number.isFinite(center) || !Number.isFinite(duration) || !Number.isFinite(span) || span <= 0) return;
+        const startValue = (center - duration / 2) / (0.001 * scale);
+        const endValue = (center + duration / 2) / (0.001 * scale);
+        myChart.dispatchAction({
+            type: 'dataZoom',
+            start: Math.max(0, Math.min(100, (startValue - TimeLine[0]) / span * 100)),
+            end: Math.max(0, Math.min(100, (endValue - TimeLine[0]) / span * 100)),
+            disable_propagation: true
+        });
     }
 
     /* document.addEventListener('keydown', function (event) {
@@ -1933,6 +1943,8 @@
                 }
             }
         });
+        // Reload replaces the file's sample axis; discard its previous callback.
+        chart.off('datazoom');
         chart.on('datazoom', function (event_params) {
             let zoom = chart.getModel().option.dataZoom[0];
             if (!renderingLine && metricHeat) metricHeat.syncLineZoom(panelNum, zoom);
@@ -1961,7 +1973,7 @@
             // Sync user changes; received Trace ranges already carry this
             // flag and must not echo a rounded sample range back to Trace.
             if (isTraceSyncEnabled() && !event_params.disable_propagation) {
-                window.SyncToTraceView();
+                window.SyncToTraceView(panelNum);
             }
         });
         // Rebuild every series' markLine from the current markerPositions state.
@@ -2139,6 +2151,8 @@
 
     function ProcessH5(res, panel = 1){
         if (res.code === 0) {
+            samplePeriods[panel] = samplePeriodFromConfig(res.data.config);
+            updateSamplePeriodDisplay();
             var heatMeta = Object.assign({}, res.data, {times:res.data.times.slice()});
             var isSecondary = panel === 2;
             var targetTitle = isSecondary ? Title2 : Title;
@@ -2183,6 +2197,10 @@
                 window.zoom_start_val = TimeLine[0];
                 window.zoom_end_val = TimeLine[TimeLine.length - 1];
             }
+
+            var loadedTimeLine = isSecondary ? TimeLine2 : TimeLine;
+            window['zoom_start_val_' + panel] = loadedTimeLine[0];
+            window['zoom_end_val_' + panel] = loadedTimeLine[loadedTimeLine.length - 1];
 
             var targetDom = isSecondary ? dom2 : dom;
             var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;

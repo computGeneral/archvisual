@@ -136,3 +136,71 @@ class HeatQueryTests(SimpleTestCase):
         with self.settings(BASE_DIR=Path(self.temp.name)):
             response = self.post('/api/temp/import', {'import': 'ports', 'mode': 'heat'})
         self.assertEqual(response.json()['data']['g']['Sig']['port'], [0, None])
+
+    def load_csv(self, method, content, secondary=False):
+        if method == 'upload':
+            return self.client.post('/api/show/upload', {
+                'file': SimpleUploadedFile('metrics.csv', content.encode('utf-8')),
+                'secondary': str(secondary).lower()})
+        path = Path(self.temp.name) / 'metrics.csv'
+        path.write_text(content)
+        return self.post('/api/show/server_load', {'path': str(path), 'secondary': secondary})
+
+    def test_csv_upload_and_server_load_agree_on_metadata_axis_and_raw_values(self):
+        body = 'sample,100,200,300\nsamplePeriod,100\ntraffic_bytes,1.5,0,-2.25\n'
+        for method in ['upload', 'server']:
+            with self.subTest(method=method):
+                response = self.load_csv(method, body)
+                self.assertEqual(response.status_code, 200)
+                meta = response.json()['data']
+                self.assertEqual(meta['config']['SamplePeriod'], 100)
+                self.assertEqual(meta['times'], ['100', '200', '300'])
+                self.assertEqual(meta['signal'], ['traffic_bytes'])
+                self.assertEqual(self.query(['traffic_bytes']).json()['data']['ports']['Sig'],
+                                 {'traffic_bytes': [1.5, 0, -2.25]})
+
+    def test_csv_reload_does_not_infer_or_retain_a_period(self):
+        for method in ['upload', 'server']:
+            for header in ['sample,100,200,300\n', '']:
+                with self.subTest(method=method, header=header):
+                    self.load_csv(method, 'sample,0,1\nsamplePeriod,200\nport,1,2\n')
+                    response = self.load_csv(method, header + 'port,1,2,3\nsecond,4,5,6\n')
+                    meta = response.json()['data']
+                    self.assertNotIn('SamplePeriod', meta['config'])
+                    self.assertEqual(meta['signal'], ['port', 'second'])
+                    self.assertEqual(meta['times'], ['100', '200', '300'] if header else [0, 1, 2])
+                    self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [1, 2, 3])
+
+    def test_csv_period_and_metric_values_remain_independent_per_panel(self):
+        self.load_csv('server', 'sample,0,1\nsamplePeriod,100\nport,1,2\n')
+        secondary = self.load_csv('upload', 'sample,0,1\nsamplePeriod,250\nport,3,4\n', True)
+        self.assertEqual(secondary.json()['data']['config']['SamplePeriod'], 250)
+        self.assertEqual(gl.get_all()['config']['SamplePeriod'], 100)
+        self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [1, 2])
+        self.assertEqual(self.query(['port'], secondary=True).json()['data']['ports']['Sig']['port'], [3, 4])
+
+    def test_invalid_csv_period_does_not_replace_loaded_dataset(self):
+        for method in ['upload', 'server']:
+            with self.subTest(method=method):
+                self.load_csv(method, 'sample,0,1\nsamplePeriod,100\nport,1,2\n')
+                response = self.load_csv(method, 'sample,0,1\nsamplePeriod,invalid\nport,3,4\n')
+                self.assertIn('samplePeriod', response.content.decode())
+                self.assertEqual(gl.get_all()['config']['SamplePeriod'], 100)
+                self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [1, 2])
+
+    def test_h5_missing_period_stays_missing_for_upload_and_server_load(self):
+        for config in [None, {'ClockGHz': 1.8}, {'interval': 100}]:
+            for method in ['upload', 'server']:
+                with self.subTest(config=config, method=method):
+                    path = Path(self.temp.name) / 'without-period.h5'
+                    with pd.HDFStore(path, mode='w') as store:
+                        store.put('data', pd.DataFrame({'port': [1, 2]}, index=[100, 200]))
+                        if config is not None:
+                            store.put('config', pd.Series(config))
+                    if method == 'upload':
+                        response = self.client.post('/api/show/upload', {
+                            'file': SimpleUploadedFile(path.name, path.read_bytes())})
+                    else:
+                        response = self.post('/api/show/server_load', {'path': str(path)})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertNotIn('SamplePeriod', response.json()['data']['config'])

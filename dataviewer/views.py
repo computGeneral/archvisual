@@ -25,6 +25,7 @@ from django.conf import settings
 from django.shortcuts import render, HttpResponse
 from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
+from scripts.metric_csv import read_metric_csv
 
 
 def _temporary_root():
@@ -67,21 +68,10 @@ def api_show_upload(request):
                 delete=False, suffix='.h5', dir=_temporary_root()) as tmp_file:
             if file.name.endswith('.csv'):
                 try:
-                    firstline = file.readline().decode('utf-8')
-                    columns = firstline.strip().split(',')[1:]
-                    reader = pd.read_csv(file,
-                                         index_col=0,
-                                         header=None,
-                                         na_filter=False,
-                                         dtype={c: np.uint32 for c in columns},
-                                         chunksize=5000,
-                                         low_memory=False)
-                    chunks = [chunk.T for chunk in reader]
-                    df = pd.concat(chunks, axis=1).astype(int)
-                    df = df.loc[:, ~df.columns.duplicated()]
+                    df, config = read_metric_csv(file)
                     with pd.HDFStore(tmp_file.name, mode='w', complevel=4, complib="blosc") as store:
                         store.put('data', df, data_columns=True)
-                        store.put('config', pd.Series({'ClockGHz': 1.8, 'SamplePeriod': 100})) # FIXME
+                        store.put('config', pd.Series({'ClockGHz': 1.8, **config}))
                 except Exception as e:
                     return HttpResponse(f"Error processing CSV file: {str(e)}", status=500)
             else: # input is hdf5
@@ -157,12 +147,12 @@ def api_show_server_load(request):
 
     try:
         if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path, index_col=0)
+            df, config = read_metric_csv(file_path)
             with tempfile.NamedTemporaryFile(
                     delete=False, suffix='.h5', dir=_temporary_root()) as tmp:
                 hdf = pd.HDFStore(tmp.name, mode='w', complevel=4, complib='blosc')
-                hdf.put('data', df.T, data_columns=True)
-                hdf.put('config', pd.Series({'ClockGHz': 1.8, 'SamplePeriod': 100}))
+                hdf.put('data', df, data_columns=True)
+                hdf.put('config', pd.Series({'ClockGHz': 1.8, **config}))
                 hdf.close()
                 with pd.HDFStore(tmp.name, mode='r') as store:
                     now_data = store['data']
