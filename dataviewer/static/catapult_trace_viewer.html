@@ -21,6 +21,7 @@
   <meta http-equiv="origin-trial" content="AkFXw3wHnOs/XXYqFXpc3diDLrRFd9PTgGs/gs43haZmngI/u1g8L4bDnSKLZkB6fecjmjTwcAMQFCpWMAoHSQEAAAB8eyJvcmlnaW4iOiJodHRwczovL2Nocm9taXVtLWJ1aWxkLXN0YXRzLmFwcHNwb3QuY29tOjQ0MyIsImZlYXR1cmUiOiJXZWJDb21wb25lbnRzVjAiLCJleHBpcnkiOjE2MTIyMjM5OTksImlzU3ViZG9tYWluIjp0cnVlfQ==">
   <meta http-equiv="origin-trial" content="AtQY4wpX9+nj+Vn27cTgygzIPbtB2WoAoMQR5jK9mCm/H2gRIDH6MmGVAaziv9XnYTDKjhBnQYtecbTiIHCQiAIAAACEeyJvcmlnaW4iOiJodHRwczovL2Nocm9taXVtLWJ1aWxkLXN0YXRzLXN0YWdpbmcuYXBwc3BvdC5jb206NDQzIiwiZmVhdHVyZSI6IldlYkNvbXBvbmVudHNWMCIsImV4cGlyeSI6MTYxMjIyMzk5OSwiaXNTdWJkb21haW4iOnRydWV9">
   <title>chrome://tracing</title>
+  <link rel="stylesheet" href="./css/viewer_toolbar.css?v=1">
   <template id="overlay-template">
   <style>
     overlay-mask {
@@ -1959,7 +1960,7 @@
     }
     </style>
 
-    <button id="button" on-tap="open">[[label]]</button>
+    <button id="button" class="viewer-toolbar-control" on-tap="open">[[label]]</button>
 
     <dialog id="dialog" on-cancel="close" on-tap="onDialogTap_">
       <slot></slot>
@@ -2239,12 +2240,12 @@
       @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 
-    <input id="filter" on-blur="filterBlur" on-focus="filterFocus" on-input="filterTextChanged" on-keydown="filterKeyDown" on-mouseup="filterMouseUp" type="text"/>
+    <input id="filter" class="viewer-toolbar-control" on-blur="filterBlur" on-focus="filterFocus" on-input="filterTextChanged" on-keydown="filterKeyDown" on-mouseup="filterMouseUp" type="text"/>
     <div id="spinner"></div>
-    <tr-ui-b-toolbar-button on-click="findPrevious">
+    <tr-ui-b-toolbar-button class="viewer-toolbar-control" on-click="findPrevious">
       ←
     </tr-ui-b-toolbar-button>
-    <tr-ui-b-toolbar-button on-click="findNext">
+    <tr-ui-b-toolbar-button class="viewer-toolbar-control" on-click="findNext">
       →
     </tr-ui-b-toolbar-button>
     <div id="hitCount">0 of 0</div>
@@ -2276,6 +2277,8 @@
         margin-bottom: 0px;
         padding-top: 0px;
         padding-bottom: 0px;
+        border-top-width: 0;
+        border-bottom-width: 0;
         height: 0px;
         opacity: 0;
       }
@@ -2639,7 +2642,11 @@
       font-size: 12px;
       display: flex;
       flex-direction: row;
-      margin: 1px;
+      /* Match MetricViewer's 24px header around the 21px controls. */
+      box-sizing: border-box;
+      height: 24px;
+      padding: 1px 1px 2px;
+      margin: 0;
     }
 
     #control > #bar > #title {
@@ -2691,32 +2698,32 @@
         align-items: normal;
         background-color: rgb(248, 248, 248);
         border: 1px solid rgba(0, 0, 0, 0.5);
-        box-sizing: content-box;
+        box-sizing: border-box;
         color: rgba(0, 0, 0, 0.8);
         font-family: sans-serif;
         font-size: 12px;
-        padding: 2px 5px;
+        padding: 0 5px;
       }
     }
     </style>
 
     <tv-ui-b-hotkey-controller id="hkc"></tv-ui-b-hotkey-controller>
     <div id="control">
-      <div id="bar">
+      <div id="bar" class="viewer-toolbar">
         <div id="left_controls"></div>
         <div id="title">^_^</div>
         <div id="right_controls">
           <tr-ui-b-dropdown id="flow_event_filter_dropdown" label="Flow events"></tr-ui-b-dropdown>
           <tr-ui-b-dropdown id="process_filter_dropdown" label="Processes"></tr-ui-b-dropdown>
-          <tr-ui-b-toolbar-button id="view_metadata_button">
+          <tr-ui-b-toolbar-button class="viewer-toolbar-control" id="view_metadata_button">
             M
           </tr-ui-b-toolbar-button>
           <tr-ui-b-dropdown id="view_options_dropdown" label="View Options"></tr-ui-b-dropdown>
           <tr-ui-find-control id="view_find_control"></tr-ui-find-control>
-          <tr-ui-b-toolbar-button id="view_console_button">
+          <tr-ui-b-toolbar-button class="viewer-toolbar-control" id="view_console_button">
             »
           </tr-ui-b-toolbar-button>
-          <tr-ui-b-toolbar-button id="view_help_button">
+          <tr-ui-b-toolbar-button class="viewer-toolbar-control" id="view_help_button">
             ?
           </tr-ui-b-toolbar-button>
         </div>
@@ -2810,16 +2817,16 @@ x-timeline-view-buttons {
   <tr-ui-b-info-bar-group></tr-ui-b-info-bar-group>
   <x-timeline-view-buttons>
     <span id="view-wrapper" style="position:relative;display:inline-block;overflow:visible;">
-      <button id="view-button">View ▾</button>
+      <button id="view-button" class="viewer-toolbar-control">View ▾</button>
       <div id="view-dropdown" style="display:none;position:fixed;background:#fff;border:1px solid #aaa;box-shadow:2px 2px 6px rgba(0,0,0,0.2);z-index:9998;white-space:nowrap;font-size:12px;min-width:120px;">
         <div id="view-opt-single" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('single')">● Single</div>
         <div id="view-opt-horizontal" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('horizontal')">Split Hori</div>
         <div id="view-opt-vertical" style="padding:6px 12px;cursor:pointer;" onclick="window._catapultExt.setViewMode('vertical')">Split Vert</div>
       </div>
     </span>
-    <button id="save-button">Save</button>
+    <button id="save-button" class="viewer-toolbar-control">Save</button>
     <span id="load-wrapper">
-      <button id="load-button">Load ▾</button>
+      <button id="load-button" class="viewer-toolbar-control">Load ▾</button>
       <div id="load-dropdown">
         <div id="load-opt-local" onclick="window._catapultExt.onLoadLocalClicked();document.getElementById('load-dropdown').style.display='none'">Local File</div>
         <div id="load-opt-server" onclick="document.getElementById('load-dropdown').style.display='none';window._catapultExt.showServerBrowser()">Server File</div>

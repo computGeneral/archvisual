@@ -1,0 +1,41 @@
+/* Shared outer height for the MetricViewer and Catapult top toolbars. */
+:root {
+    --viewer-control-height: 21px;
+}
+
+.viewer-toolbar .viewer-toolbar-control {
+    box-sizing: border-box;
+    height: var(--viewer-control-height);
+    min-height: var(--viewer-control-height);
+    max-height: var(--viewer-control-height);
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: normal;
+    vertical-align: middle;
+}
+
+.viewer-toolbar-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    box-sizing: border-box;
+    height: 100%;
+    padding-top: 1px;
+}
+
+.viewer-toolbar-item {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+}
+
+/* Retain the existing outer widths when changing the custom buttons' box model. */
+.viewer-toolbar tr-ui-b-toolbar-button.viewer-toolbar-control {
+    min-width: 25px;
+}
+
+.viewer-toolbar tr-ui-find-control tr-ui-b-toolbar-button.viewer-toolbar-control {
+    min-width: 24px;
+}

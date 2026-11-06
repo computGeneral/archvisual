@@ -10,6 +10,7 @@
     <link rel="icon" href="/static/image/metricviewer.ico" type="image/x-icon">
     <script src="/static/js/split_view.js?v=2"></script>
     <link rel="stylesheet" href="/static/css/split_view.css?v=2">
+    <link rel="stylesheet" href="/static/css/viewer_toolbar.css?v=1">
     <style type="text/css">
         * {
             margin: 0;
@@ -168,11 +169,11 @@
         .heat-spacer { position:relative; min-width:100%; min-height:100%; }
         .heat-canvas { position:sticky; left:0; top:0; width:600px; height:320px; overflow:hidden; }
 
-        .metric-mode-select { position:relative; display:inline-block; }
+        .metric-mode-select { position:relative; }
         .metric-mode-select select { appearance:none; -webkit-appearance:none;
-            height:21px; font-size:100%; padding-left:2px; padding-right:14px; }
+            font-size:100%; padding-left:2px; padding-right:14px; }
         .metric-mode-select::after { content:'▾'; position:absolute; right:3px; top:0;
-            height:21px; display:flex; align-items:center; pointer-events:none;
+            height:100%; display:flex; align-items:center; pointer-events:none;
             font-family:Arial,sans-serif; }
 
         /* Pinned metric info cards (persistent, draggable tooltip snapshots) */
@@ -342,24 +343,24 @@
         -->
     </div>
 
-    <div class="header" style="background-color: #ddd; font-size: 80%">
-        <div style="display: flex; justify-content: space-between">
+    <div class="header viewer-toolbar" style="background-color: #ddd; font-size: 80%">
+        <div class="viewer-toolbar-row">
             <div style="text-align: left; flex-grow: 0">
-                <span style="position: relative; display: inline-block;">
-                    <button id="splitToggle" type="button" onclick="toggleSplitMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
+                <span class="viewer-toolbar-item" style="position: relative;">
+                    <button class="viewer-toolbar-control" id="splitToggle" type="button" onclick="toggleSplitMenu()" style="font-size: 100%; padding-left: 2px; padding-right: 2px">View ▾</button>
                     <div id="splitMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
                         <div id="splitOpt_single" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('single')">● Single</div>
                         <div id="splitOpt_horizontal" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('horizontal')">Split Hori</div>
                         <div id="splitOpt_vertical" style="padding:4px 12px; cursor:pointer;" onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#fff'" onclick="setSplitMode('vertical')">Split Vert</div>
                     </div>
                 </span>
-                <span class="metric-mode-select">
-                    <select id="metricMode" aria-label="Chart mode">
+                <span class="metric-mode-select viewer-toolbar-item">
+                    <select class="viewer-toolbar-control" id="metricMode" aria-label="Chart mode">
                         <option value="line">Line</option><option value="heat">Heat</option>
                     </select>
                 </span>
-                <span style="position: relative; display: inline-block;">
-                    <button id="initBtn" type="button" onclick="toggleLoadMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Load ▾</button>
+                <span class="viewer-toolbar-item" style="position: relative;">
+                    <button class="viewer-toolbar-control" id="initBtn" type="button" onclick="toggleLoadMenu()" style="font-size: 100%; padding-left: 2px; padding-right: 2px">Load ▾</button>
                     <input type="file" id="fileInput" style="display: none;">
                     <div id="loadMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%;">
                         <button id="reloadLoadItem" type="button" onclick="reloadFile()" disabled>reload</button>
@@ -389,8 +390,8 @@
                         </div>
                     </div>
                 </div>
-                <span style="position: relative; display: inline-block;">
-                    <button id="templateBtn" type="button" onclick="toggleTemplateMenu()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Templ▾</button>
+                <span class="viewer-toolbar-item" style="position: relative;">
+                    <button class="viewer-toolbar-control" id="templateBtn" type="button" onclick="toggleTemplateMenu()" style="font-size: 100%; padding-left: 2px; padding-right: 2px">Templ▾</button>
                     <div id="templateMenu" style="display:none; position:absolute; top:22px; left:0; background:#fff; border:1px solid #aaa; box-shadow:2px 2px 6px rgba(0,0,0,0.2); z-index:100; white-space:nowrap; font-size:100%; padding:6px 8px;">
                         <input id="template_name" style="width: 140px; height:18px; margin-bottom:4px;" type="text" size="10" value="" placeholder="Template name">
                         <div style="display:flex; gap:4px;">
@@ -399,16 +400,16 @@
                         </div>
                     </div>
                 </span>
-                <input id="filterMetricGroup" style="width: 60px; height:18px; " type="text" value="" placeholder="group name">
-                <input id="filterMetric" style="width: 120px; height:18px; " type="text" value="" placeholder="metric name"
+                <input class="viewer-toolbar-control" id="filterMetricGroup" style="width: 64px; " type="text" value="" placeholder="group name">
+                <input class="viewer-toolbar-control" id="filterMetric" style="width: 124px; " type="text" value="" placeholder="metric name"
                     onclick="MetricSelectDivClick();" onkeydown="MetricSearchFunc(event)">
                 <div id="MetricSelectDiv"
                     style="display:none;border:1px solid #A9A9A9;width:800px;z-index:9;position:absolute;overflow-y :scroll;height:300px;background-color:white;"
                     onMouseOver="MetricSelectMouseIn()" onMouseOut="MetricSelectMouseOut()">
                     <br>
                 </div>
-                <button type="button" onclick="MetricSelectSubmit()" style="height:21px; font-size: 100%;  padding-left: 2px; padding-right: 2px">Plot</button>
-                <button type="button" onclick="ClearAll()" style="height:21px; font-size: 100%; padding-left: 2px; padding-right: 2px">Clear</button>
+                <button class="viewer-toolbar-control" type="button" onclick="MetricSelectSubmit()" style="font-size: 100%;  padding-left: 2px; padding-right: 2px">Plot</button>
+                <button class="viewer-toolbar-control" type="button" onclick="ClearAll()" style="font-size: 100%; padding-left: 2px; padding-right: 2px">Clear</button>
                 <span id="title" style="float: center;">No file loaded</span>
             </div>
 
@@ -416,11 +417,11 @@
                 <!--
                 <label for="zoom_start">Sample</label>
                 -->
-                <input id="zoom_start" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="Start"
+                <input class="viewer-toolbar-control" id="zoom_start" style="width: 64px; " type="text" size="10" maxlength="30" value="" placeholder="Start"
                     onkeydown="ZoomChange(event)">
-                <input id="zoom_end" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="End"
+                <input class="viewer-toolbar-control" id="zoom_end" style="width: 64px; " type="text" size="10" maxlength="30" value="" placeholder="End"
                     onkeydown="ZoomChange(event)">
-                <input id="zoom_duration" style="width: 60px; height:18px; " type="text" size="10" maxlength="30" value="" placeholder="Dur"
+                <input class="viewer-toolbar-control" id="zoom_duration" style="width: 64px; " type="text" size="10" maxlength="30" value="" placeholder="Dur"
                     onkeydown="ZoomChange(event)">
 
                 <!--
@@ -430,16 +431,16 @@
                 <!--
                 <label for="sample_rate">Rate</label>
                 -->
-                <input id="sample_rate" style="width: 60px; height:18px; " type="text" size="10" value="" readonly
+                <input class="viewer-toolbar-control" id="sample_rate" style="width: 64px; " type="text" size="10" value="" readonly
                     aria-label="Sample period" title="Sample period is not provided by this file">
                 <!--
                 <label for="zoom_start">Limit</label>
             -->
-                <input id="max_value" style="width: 60px; height:18px; padding-right:10px;" type="text" size="10"
+                <input class="viewer-toolbar-control" id="max_value" style="width: 74px; padding-right:10px;" type="text" size="10"
                     value="-1" placeholder="set -1 to remove duration limit">
-                <button id="sync" type="button" aria-pressed="true"
+                <button class="viewer-toolbar-control" id="sync" type="button" aria-pressed="true"
                     aria-label="Automatic Metric/Trace sync" title="Automatic sync enabled; click to disable"
-                    onclick="toggleTraceSync()" style="width:52px; height:21px; font-size:100%; padding:0 4px; box-sizing:border-box;">sync</button>
+                    onclick="toggleTraceSync()" style="width:52px; font-size:100%; padding:0 4px; box-sizing:border-box;">sync</button>
             </div>
             <!--
             <label for="Merge">Merge</label>
