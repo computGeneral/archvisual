@@ -230,7 +230,7 @@ def build_executable():
 cd "$(dirname "$0")"
 ./archvisual runserver 0.0.0.0:8000
 """
-        with open(os.path.join(target_dir, "run_archvis.sh"), "w") as f:
+        with open(os.path.join(target_dir, "run_visual.sh"), "w") as f:
             f.write(run_script_content)
         
         # On Windows, create a batch file too
@@ -239,7 +239,7 @@ cd "$(dirname "$0")"
 ./archvisual.exe runserver 0.0.0.0:8000
 pause
 """
-            with open(os.path.join(target_dir, "run_archvis.bat"), "w") as f:
+            with open(os.path.join(target_dir, "run_visual.bat"), "w") as f:
                 f.write(batch_content)
     else:
         raise FileNotFoundError(f"Build artifacts not found: {source_dir}")
