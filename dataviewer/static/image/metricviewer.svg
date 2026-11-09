@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <title>MetricViewer: Line and Heat</title>
+  <defs>
+    <!-- The two regions leave a 5px transparent gap centered on x = 24. -->
+    <clipPath id="area-left">
+      <path d="M0 0H21.5V48H0Z"/>
+    </clipPath>
+    <clipPath id="heat-right">
+      <path d="M26.5 0H48V48H26.5Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#area-left)">
+    <path d="M1 23 16 6 31 10 46 1V46H1Z" fill="#8bb7f0"
+          stroke="#558ec6" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M1 31 16 22 31 26 46 20V46H1Z" fill="#bae0bd"
+          stroke="#68a57f" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+  <g clip-path="url(#heat-right)">
+    <path d="M24 1h10.5v10.5H24Z" fill="#6baed6"/>
+    <path d="M35.5 1h10.5v10.5H35.5Z" fill="#6baed6"/>
+    <path d="M24 12.5h10.5v10.5H24Z" fill="#6baed6"/>
+    <path d="M35.5 12.5h10.5v10.5H35.5Z" fill="#2171b5"/>
+    <path d="M24 24h10.5v10.5H24Z" fill="#2171b5"/>
+    <path d="M35.5 24h10.5v10.5H35.5Z" fill="#fdae61"/>
+    <path d="M24 35.5h10.5v10.5H24Z" fill="#fdae61"/>
+    <path d="M35.5 35.5h10.5v10.5H35.5Z" fill="#d73027"/>
+  </g>
+</svg>
