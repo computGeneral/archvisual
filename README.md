@@ -5,7 +5,7 @@ A web-based visualization tool for exploring and analyzing architectural data us
 ## Requirements
 
 - Python 3.10 or newer (compatibility depends on the installed packages)
-- Bash for shell wrappers; flock and tar for release packaging
+- Bash (including macOS Bash 3.2) for shell wrappers; tar for release packaging
 
 ## Running with the current Python
 
@@ -318,9 +318,15 @@ version and platform; build or publication failures preserve the previous
 package through the rollback protocol below.
 
 The script uses the locally selected Python and serializes releases
-with a source-project release lock, even when output overrides differ. It builds
+with a source-project release lock, even when output overrides differ. The lock
+uses Python's standard-library `fcntl.flock` on macOS and Linux; no external
+`flock` command is required. It builds
 inside a unique directory under `__output__/.release-staging/`; regular standalone build outputs
 and existing release packages are kept separate.
+
+On macOS, the build produces a command-line standalone directory for the
+invoking Python's architecture. Packaging preserves that directory's runtime
+libraries and code signatures.
 
 Validated packages are published under `__output__/releases/` as
 `archvisual.<version>.<system>.<machine>.tar.bz2`, for example

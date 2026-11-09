@@ -183,12 +183,11 @@ def build_executable():
             cmd.extend(["--windows-icon-from-ico", icon_path])
         cmd.extend(["--windows-disable-console"])  # Optional: remove console window
     elif system == "darwin":
-        cmd.extend([
-            "--static-libpython=no",
-            "--macos-target-arch=arm64",
-            "--macos-create-app-bundle",
-            f"--macos-app-name={app_name}"
-        ])
+        # This is a command-line server. Keep Nuitka's standalone directory
+        # intact; extracting Contents/MacOS from an app bundle breaks its
+        # signature and can discard resources. Build for the invoking Python's
+        # architecture rather than forcing arm64 on Intel Macs.
+        cmd.append("--static-libpython=no")
     else:  # Linux
         if os.path.exists(icon_path):
             cmd.extend([f"--linux-icon={icon_path}"])
@@ -214,8 +213,6 @@ def build_executable():
     # Move and organize build artifacts
     entry_point_name = os.path.splitext(os.path.basename(entry_point))[0]
     source_dir = os.path.join(build_temp_dir, f"{entry_point_name}.dist")
-    if platform.system().lower() == "darwin":
-        source_dir = os.path.join(build_temp_dir, f"{entry_point_name}.app/Contents/MacOS")
     target_dir = os.path.join(dist_path, app_name)
     
     if os.path.exists(source_dir):

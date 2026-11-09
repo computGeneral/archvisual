@@ -146,6 +146,35 @@ if mode == 'external-version':
         release_tools.verify_archive(self.old, '1.2.3', release_tools.platform_tags()[2])
         self.assert_clean()
 
+    def test_release_does_not_require_the_external_flock_command(self):
+        folder = self.case / 'fake-bin'
+        folder.mkdir()
+        command = folder / 'flock'
+        command.write_text('#!/bin/bash\necho "external flock must not be called" >&2\nexit 99\n')
+        command.chmod(0o755)
+        result = self.run_release(env={'PATH': str(folder) + os.pathsep + self.env['PATH']})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.version.read_text(), '1.2.4\n')
+        release_tools.verify_archive(self.destination, '1.2.4', release_tools.platform_tags()[2])
+        self.assert_clean()
+
+    def test_existing_system_lock_is_respected_and_can_be_released(self):
+        import fcntl
+
+        with (self.project / '.archvisual-release.lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.run_release()
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertIn('another ArchVisual release is running', result.stderr)
+            self.assertFalse((self.repo / 'observed-version.txt').exists())
+            self.assert_preserved()
+            self.assert_clean()
+
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.version.read_text(), '1.2.4\n')
+        self.assert_clean()
+
     def test_no_argument_publishes_current_version_when_archive_is_absent(self):
         self.old.unlink()
         result = self.run_release(argument=None)
@@ -371,6 +400,10 @@ os.replace = _fail_fixture_commit
         self.assertEqual(process.returncode, 143)
         self.assert_preserved()
         self.assert_clean()
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.version.read_text(), '1.2.4\n')
+        self.assert_clean()
 
 
 class PublishTransactionTests(ReleaseFixture):
@@ -536,6 +569,33 @@ class ArchiveAndPlatformTests(ReleaseFixture):
 
 
 class BuildFailureTests(ReleaseFixture):
+    def test_macos_and_linux_keep_the_standalone_distribution_intact(self):
+        spec = importlib.util.spec_from_file_location('release_build_under_test', PROJECT / 'build_visual.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for system in ('Darwin', 'Linux'):
+            with self.subTest(system=system):
+                output = self.case / system
+
+                def compile_fixture(command, cwd):
+                    self.assertEqual(command[0], sys.executable)
+                    self.assertIn('--standalone', command)
+                    self.assertFalse(any(option.startswith('--macos-') for option in command))
+                    self.assertEqual('--static-libpython=no' in command, system == 'Darwin')
+                    distribution = output / 'build/temp/archvisual.dist'
+                    (distribution / 'libraries').mkdir(parents=True)
+                    (distribution / 'archvisual').write_bytes(b'compiled fixture')
+                    (distribution / 'libraries/dependency').write_bytes(b'library fixture')
+
+                with mock.patch.dict(os.environ, {'ARCHVISUAL_OUTPUT_ROOT': str(output)}), \
+                        mock.patch.object(module.platform, 'system', return_value=system), \
+                        mock.patch.object(module, 'collect_static_files'), \
+                        mock.patch.object(module.subprocess, 'check_call', side_effect=compile_fixture):
+                    module.build_executable()
+                self.assertEqual((output / 'output/archvisual/archvisual').read_bytes(), b'compiled fixture')
+                self.assertEqual((output / 'output/archvisual/libraries/dependency').read_bytes(), b'library fixture')
+                self.assertTrue((output / 'output/archvisual/run_visual.sh').is_file())
+
     def test_build_failure_and_missing_artifacts_do_not_return_success(self):
         spec = importlib.util.spec_from_file_location('release_build_under_test', PROJECT / 'build_visual.py')
         module = importlib.util.module_from_spec(spec)

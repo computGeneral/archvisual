@@ -50,11 +50,20 @@ fi
 
 # Serializes version reads and publication even when output overrides differ.
 mkdir -p "$MODULE_OUTPUT" "$RELEASE_DIR" "$STAGING_ROOT"
-exec {release_lock_fd}>"$PROJECT_ROOT/.archvisual-release.lock"
-if ! flock -n "$release_lock_fd"; then
-    echo "ERROR: another ArchVisual release is running" >&2
-    exit 75
-fi
+# A fixed descriptor works with macOS Bash 3.2. Python uses the same OS flock
+# on macOS and Linux without requiring the external flock command. The lock
+# stays held by this shell's open descriptor after the Python child exits.
+exec 9>"$PROJECT_ROOT/.archvisual-release.lock"
+python3 -B - <<'PY'
+import fcntl
+import sys
+
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print('ERROR: another ArchVisual release is running', file=sys.stderr)
+    sys.exit(75)
+PY
 
 # ---------------------------------------------------------------------------
 # 2. Read + parse version.txt
