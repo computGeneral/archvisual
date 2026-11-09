@@ -1,14 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
   <title>Metric vs. Trace</title>
-  <rect width="32" height="32" rx="6" fill="#283342"/>
-  <path d="M5 13h5l3-6 4 6 4-4h6" fill="none" stroke="#5ee1ef"
-        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#ffb454">
-    <rect x="5" y="18" width="9" height="3" rx="1"/>
-    <rect x="16" y="18" width="11" height="3" rx="1"/>
-    <rect x="5" y="24" width="6" height="3" rx="1"/>
-    <rect x="13" y="24" width="14" height="3" rx="1"/>
-  </g>
-  <path d="M18 5v23" fill="none" stroke="#f4f7fb" stroke-width="1.5"
-        stroke-linecap="round"/>
+  <!-- Original upper halves, scaled uniformly to 43 x 21.5; 5px transparent seam. -->
+  <!-- MetricViewer: preserve the current area and heatmap vector artwork. -->
+  <svg x="2.5" y="0" width="43" height="21.5" viewBox="0 0 48 24" overflow="hidden">
+    <defs>
+      <!-- The two regions leave a 5px transparent gap centered on x = 24. -->
+      <clipPath id="area-left">
+        <path d="M0 0H21.5V48H0Z"/>
+      </clipPath>
+      <clipPath id="heat-right">
+        <path d="M26.5 0H48V48H26.5Z"/>
+      </clipPath>
+    </defs>
+    <g clip-path="url(#area-left)">
+      <path d="M1 23 16 6 31 10 46 1V46H1Z" fill="#8bb7f0"
+            stroke="#558ec6" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M1 31 16 22 31 26 46 20V46H1Z" fill="#bae0bd"
+            stroke="#68a57f" stroke-width="1.5" stroke-linejoin="round"/>
+    </g>
+    <g clip-path="url(#heat-right)">
+      <path d="M24 1h10.5v10.5H24Z" fill="#6baed6"/>
+      <path d="M35.5 1h10.5v10.5H35.5Z" fill="#6baed6"/>
+      <path d="M24 12.5h10.5v10.5H24Z" fill="#6baed6"/>
+      <path d="M35.5 12.5h10.5v10.5H35.5Z" fill="#2171b5"/>
+      <path d="M24 24h10.5v10.5H24Z" fill="#2171b5"/>
+      <path d="M35.5 24h10.5v10.5H35.5Z" fill="#fdae61"/>
+      <path d="M24 35.5h10.5v10.5H24Z" fill="#fdae61"/>
+      <path d="M35.5 35.5h10.5v10.5H35.5Z" fill="#d73027"/>
+    </g>
+  </svg>
+  <!-- TraceViewer: embedded original 48px ICO frame, clipped to its upper half. -->
+  <svg x="2.5" y="26.5" width="43" height="21.5" viewBox="0 0 48 24" overflow="hidden">
+    <image width="48" height="48" href="data:image/png;base64,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"/>
+  </svg>
 </svg>
