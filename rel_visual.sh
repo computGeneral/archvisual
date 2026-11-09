@@ -5,7 +5,7 @@
 # atomically publishing it and updating version.txt. Existing releases survive
 # build/packaging failures.
 #
-# Usage: bash rel_visual.sh {maj|mid|min}
+# Usage: bash rel_visual.sh [maj|mid|min]
 
 set -euo pipefail
 
@@ -28,13 +28,14 @@ case "$RELEASE_DIR" in
 esac
 
 # ---------------------------------------------------------------------------
-# 1. Validate argument
+# 1. Validate the optional version increment
 # ---------------------------------------------------------------------------
 ARG="${1:-}"
 case "$ARG" in
-    maj|mid|min) : ;;
+    ""|maj|mid|min) : ;;
     *)
-        echo "Usage: bash rel_visual.sh {maj|mid|min}" >&2
+        echo "Usage: bash rel_visual.sh [maj|mid|min]" >&2
+        echo "  no argument - rebuild and release the current version" >&2
         echo "  maj  - bump major   (MAJ+1.0.0)" >&2
         echo "  mid  - bump minor   (MAJ.MIN+1.0)" >&2
         echo "  min  - bump patch   (MAJ.MIN.MIN+1)" >&2
@@ -74,7 +75,7 @@ MID="${BASH_REMATCH[2]}"
 MIN="${BASH_REMATCH[3]}"
 
 # ---------------------------------------------------------------------------
-# 3. Bump per argument
+# 3. Keep the current version unless an increment was requested
 # ---------------------------------------------------------------------------
 case "$ARG" in
     maj) MAJ=$((10#$MAJ + 1)); MID=0; MIN=0 ;;
@@ -83,7 +84,11 @@ case "$ARG" in
 esac
 
 NEW_VERSION="${MAJ}.${MID}.${MIN}"
-echo "Candidate version: ${RAW} -> ${NEW_VERSION}"
+if [[ -z "$ARG" ]]; then
+    echo "Re-release version: $NEW_VERSION (unchanged)"
+else
+    echo "Candidate version: ${RAW} -> ${NEW_VERSION}"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Prepare an isolated build and a candidate version; keep version.txt intact.

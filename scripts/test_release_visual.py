@@ -94,7 +94,10 @@ if mode == 'external-version':
     def run_release(self, mode='', argument='min', env=None):
         environment = dict(self.env, RELEASE_TEST_MODE=mode)
         environment.update(env or {})
-        result = subprocess.run(['bash', str(self.project / 'rel_visual.sh'), argument],
+        command = ['bash', str(self.project / 'rel_visual.sh')]
+        if argument is not None:
+            command.append(argument)
+        result = subprocess.run(command,
                                 cwd=self.case, env=environment, capture_output=True, text=True, timeout=20)
         (self.case / 'stdout.log').write_text(result.stdout)
         (self.case / 'stderr.log').write_text(result.stderr)
@@ -132,6 +135,26 @@ if mode == 'external-version':
                 self.assertEqual(stream.read(), (PROJECT / 'scripts/README.release.md').read_bytes())
         self.assert_clean()
 
+    def test_no_argument_rebuilds_current_version_and_replaces_same_platform_archive(self):
+        result = self.run_release(argument=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Re-release version: 1.2.3 (unchanged)', result.stdout)
+        self.assertEqual((self.repo / 'observed-version.txt').read_text(), '1.2.3\n')
+        self.assertEqual(self.version.read_text(), '1.2.3\n')
+        self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
+        self.assertEqual(self.legacy.read_bytes(), b'legacy archive outside staging')
+        release_tools.verify_archive(self.old, '1.2.3', release_tools.platform_tags()[2])
+        self.assert_clean()
+
+    def test_no_argument_publishes_current_version_when_archive_is_absent(self):
+        self.old.unlink()
+        result = self.run_release(argument=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.version.read_text(), '1.2.3\n')
+        self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
+        release_tools.verify_archive(self.old, '1.2.3', release_tools.platform_tags()[2])
+        self.assert_clean()
+
     def test_invalid_readme_source_stops_before_build_and_preserves_releases(self):
         readme = self.project / 'scripts/README.release.md'
         readme.unlink()
@@ -164,19 +187,27 @@ if mode == 'external-version':
         self.assert_clean()
 
     def test_build_failure_keeps_version_and_old_packages(self):
-        self.assertEqual(self.run_release('fail').returncode, 42)
-        self.assert_preserved()
-        self.assert_clean()
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.assertEqual(self.run_release('fail', argument=argument).returncode, 42)
+                self.assert_preserved()
+                self.assert_clean()
 
     def test_tar_failure_keeps_old_package_instead_of_partial_file(self):
-        self.assertEqual(self.run_release(env=self.fake_tar(66)).returncode, 66)
-        self.assert_preserved()
-        self.assert_clean()
+        environment = self.fake_tar(66)
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.assertEqual(self.run_release(argument=argument, env=environment).returncode, 66)
+                self.assert_preserved()
+                self.assert_clean()
 
     def test_corrupt_archive_with_success_exit_is_not_published(self):
-        self.assertNotEqual(self.run_release(env=self.fake_tar(0)).returncode, 0)
-        self.assert_preserved()
-        self.assert_clean()
+        environment = self.fake_tar(0)
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.assertNotEqual(self.run_release(argument=argument, env=environment).returncode, 0)
+                self.assert_preserved()
+                self.assert_clean()
 
     def test_missing_build_executable_is_rejected(self):
         self.assertNotEqual(self.run_release('missing').returncode, 0)
@@ -206,9 +237,11 @@ if mode == 'external-version':
 
     def test_invalid_version_does_not_build(self):
         self.version.write_text('not-a-version\n')
-        self.assertNotEqual(self.run_release().returncode, 0)
-        self.assertEqual(self.version.read_text(), 'not-a-version\n')
-        self.assertFalse((self.repo / 'observed-version.txt').exists())
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.assertNotEqual(self.run_release(argument=argument).returncode, 0)
+                self.assertEqual(self.version.read_text(), 'not-a-version\n')
+                self.assertFalse((self.repo / 'observed-version.txt').exists())
 
     def test_cleaned_output_or_staging_override_is_rejected(self):
         for folder in [self.module / 'output', self.module / 'build',
@@ -226,12 +259,16 @@ if mode == 'external-version':
         self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
 
     def test_external_version_change_is_not_overwritten(self):
-        result = self.run_release('external-version')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('version.txt changed during the build', result.stderr)
-        self.assertEqual(self.version.read_text(), '9.9.9\n')
-        self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
-        self.assert_clean()
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.version.write_text('1.2.3\n')
+                result = self.run_release('external-version', argument=argument)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('version.txt changed during the build', result.stderr)
+                self.assertEqual(self.version.read_text(), '9.9.9\n')
+                self.assertEqual(self.old.read_bytes(), b'previous version archive')
+                self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
+                self.assert_clean()
 
     def inject_version_commit_failure(self, fail_rollback=False):
         # Fault injection exists only in this fixture copy, never production.
@@ -247,9 +284,11 @@ os.replace = _fail_fixture_commit
 
     def test_release_entrypoint_rolls_back_on_version_commit_failure(self):
         self.inject_version_commit_failure()
-        self.assertNotEqual(self.run_release().returncode, 0)
-        self.assert_preserved()
-        self.assert_clean()
+        for argument in (None, 'min'):
+            with self.subTest(argument=argument):
+                self.assertNotEqual(self.run_release(argument=argument).returncode, 0)
+                self.assert_preserved()
+                self.assert_clean()
 
     def test_release_entrypoint_keeps_artifacts_when_rollback_fails(self):
         self.inject_version_commit_failure(fail_rollback=True)
@@ -264,9 +303,12 @@ os.replace = _fail_fixture_commit
         self.assertEqual(backups[0].read_bytes(), b'previous same-name archive')
         self.assertTrue((markers[0].parent / 'version.original').exists())
 
-    def blocked_release(self):
+    def blocked_release(self, argument='min'):
         environment = dict(self.env, RELEASE_TEST_MODE='block')
-        process = subprocess.Popen(['bash', str(self.project / 'rel_visual.sh'), 'min'],
+        command = ['bash', str(self.project / 'rel_visual.sh')]
+        if argument is not None:
+            command.append(argument)
+        process = subprocess.Popen(command,
                                    cwd=self.case, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.addCleanup(lambda: process.kill() if process.poll() is None else None)
         deadline = time.monotonic() + 8
@@ -276,6 +318,19 @@ os.replace = _fail_fixture_commit
                 self.fail(f'Blocked build did not start: {stdout}\n{stderr}')
             time.sleep(0.02)
         return process
+
+    def test_same_version_release_holds_lock_against_concurrent_version_bump(self):
+        process = self.blocked_release(argument=None)
+        second = self.run_release()
+        self.assertEqual(second.returncode, 75, second.stderr)
+        self.assert_preserved()
+        (self.repo / 'continue').touch()
+        stdout, stderr = process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.assertEqual(self.version.read_text(), '1.2.3\n')
+        self.assertEqual(self.destination.read_bytes(), b'previous same-name archive')
+        release_tools.verify_archive(self.old, '1.2.3', release_tools.platform_tags()[2])
+        self.assert_clean()
 
     def test_parallel_release_is_rejected_before_reading_version(self):
         process = self.blocked_release()

@@ -48,7 +48,8 @@ Relative overrides are anchored to the ArchVisual root, independent of the
 caller's directory. Source-path protection and existing
 `ARCHEXPLOR_ARCHVISUAL_*` output aliases are retained.
 
-Releases use `bash rel_visual.sh {maj|mid|min}`. The release lock protects
+Releases use `bash rel_visual.sh [maj|mid|min]`. Omit the argument to rebuild
+and release the current version. The release lock protects
 version updates; builds use an isolated staging directory, verify archives
 before publication and retain rollback protection. This lock controls release
 publication, not the Python environment.
@@ -309,8 +310,14 @@ The existing time conversion and Trace display padding remain unchanged.
 
 ## Safe release packaging
 
-From the ArchVisual repository root, run `bash rel_visual.sh min` (or `mid` /
-`maj`). The script uses the locally selected Python and serializes releases
+From the ArchVisual repository root, run `bash rel_visual.sh` to rebuild and
+release the version currently recorded in `version.txt`, without incrementing
+it. Pass `min`, `mid` or `maj` to increment the patch, minor or major version.
+A validated rebuild atomically replaces an existing package with the same
+version and platform; build or publication failures preserve the previous
+package through the rollback protocol below.
+
+The script uses the locally selected Python and serializes releases
 with a source-project release lock, even when output overrides differ. It builds
 inside a unique directory under `__output__/.release-staging/`; regular standalone build outputs
 and existing release packages are kept separate.
