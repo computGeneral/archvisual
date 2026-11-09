@@ -7,6 +7,7 @@
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
     <script src="/static/js/metric_heat.js?v=13"></script>
+    <script src="/static/js/metric_search_resize.js?v=1"></script>
     <link rel="icon" href="/static/image/metricviewer.ico?v=6" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
     <link rel="icon" href="/static/image/metricviewer.svg?v=6" type="image/svg+xml" sizes="any">
     <script src="/static/js/split_view.js?v=2"></script>
@@ -28,6 +29,20 @@
             text-align:left; font:inherit; padding:4px 12px; cursor:pointer; }
         #reloadLoadItem:hover:not(:disabled) { background:#e0e0e0; }
         #reloadLoadItem:disabled { color:#999; cursor:default; }
+
+        #MetricSelectDiv { display:none; position:absolute; z-index:9;
+            width:800px; height:300px; box-sizing:border-box; padding:0 5px 5px 0;
+            border:1px solid #a9a9a9; background:white; }
+        #MetricSelectResults { width:100%; height:100%; overflow-y:scroll; overflow-x:auto; }
+        .metric-search-resizer { position:absolute; touch-action:none; }
+        .metric-search-resizer[data-metric-resize="x"] { top:0; right:0; bottom:8px; width:5px; cursor:col-resize; }
+        .metric-search-resizer[data-metric-resize="y"] { left:0; right:8px; bottom:0; height:5px; cursor:row-resize; }
+        .metric-search-resizer[data-metric-resize="xy"] { right:0; bottom:0; width:8px; height:8px;
+            cursor:nwse-resize; background:linear-gradient(135deg, transparent 45%, #aaa 46%, #aaa 55%, transparent 56%); }
+        .metric-search-resizer:hover { background-color:rgba(80,130,190,.22); }
+        .metric-search-drag-shield { position:fixed; inset:0; z-index:2147483647; }
+        .metric-search-resizing, .metric-search-resizing * {
+            cursor:var(--metric-search-cursor) !important; user-select:none !important; }
 
         .header {
             width: 100%;
@@ -404,10 +419,12 @@
                 <input class="viewer-toolbar-control" id="filterMetricGroup" style="width: 64px; " type="text" value="" placeholder="group name">
                 <input class="viewer-toolbar-control" id="filterMetric" style="width: 124px; " type="text" value="" placeholder="metric name"
                     onclick="MetricSelectDivClick();" onkeydown="MetricSearchFunc(event)">
-                <div id="MetricSelectDiv"
-                    style="display:none;border:1px solid #A9A9A9;width:800px;z-index:9;position:absolute;overflow-y :scroll;height:300px;background-color:white;"
+                <div id="MetricSelectDiv" style="display:none;"
                     onMouseOver="MetricSelectMouseIn()" onMouseOut="MetricSelectMouseOut()">
-                    <br>
+                    <div id="MetricSelectResults"><br></div>
+                    <div class="metric-search-resizer" data-metric-resize="x" title="Drag to resize width"></div>
+                    <div class="metric-search-resizer" data-metric-resize="y" title="Drag to resize height"></div>
+                    <div class="metric-search-resizer" data-metric-resize="xy" title="Drag to resize width and height"></div>
                 </div>
                 <button class="viewer-toolbar-control" type="button" onclick="MetricSelectSubmit()" style="font-size: 100%;  padding-left: 2px; padding-right: 2px">Plot</button>
                 <button class="viewer-toolbar-control" type="button" onclick="ClearAll()" style="font-size: 100%; padding-left: 2px; padding-right: 2px">Clear</button>
@@ -488,6 +505,7 @@
 
 <script>
     var metricHeat = null;
+    var metricSearchResize = null;
     var renderingLine = false;
 
     // Dual view state
@@ -1164,6 +1182,7 @@
 
     function MetricSelectDivClick() {
         document.getElementById("MetricSelectDiv").style.display = "block";
+        if (metricSearchResize) metricSearchResize.refresh();
     }
 
     function MetricCheck(obj) {
@@ -2457,7 +2476,7 @@
 
     // Function to rebuild MetricSelectDiv based on active panel
     function rebuildMetricSelectDiv() {
-        var MetricSelectDiv = document.getElementById("MetricSelectDiv");
+        var MetricSelectDiv = document.getElementById("MetricSelectResults");
         // Clear existing checkboxes
         MetricSelectDiv.innerHTML = '';
 
@@ -2496,6 +2515,7 @@
 
 
     $(document).ready(function () {
+        metricSearchResize = MetricSearchResize.install(document.getElementById('MetricSelectDiv'));
         // Check if page is embedded
         const urlParams = new URLSearchParams(window.location.search);
         const isEmbedded = urlParams.get('embedded') === 'true';
