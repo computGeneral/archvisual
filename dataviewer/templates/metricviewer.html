@@ -6,8 +6,9 @@
     <title>MetricViewer</title>
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
-    <script src="/static/js/metric_heat.js?v=13"></script>
+    <script src="/static/js/metric_heat.js?v=14"></script>
     <script src="/static/js/metric_search_resize.js?v=1"></script>
+    <script src="/static/js/metric_search.js?v=1"></script>
     <link rel="icon" href="/static/image/metricviewer.ico?v=6" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
     <link rel="icon" href="/static/image/metricviewer.svg?v=6" type="image/svg+xml" sizes="any">
     <script src="/static/js/split_view.js?v=2"></script>
@@ -506,6 +507,7 @@
 <script>
     var metricHeat = null;
     var metricSearchResize = null;
+    var metricSearch = null;
     var renderingLine = false;
 
     // Dual view state
@@ -1183,38 +1185,15 @@
     function MetricSelectDivClick() {
         document.getElementById("MetricSelectDiv").style.display = "block";
         if (metricSearchResize) metricSearchResize.refresh();
+        if (metricSearch) metricSearch.refresh();
     }
 
     function MetricCheck(obj) {
-        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
-        if (obj.checked) {
-            targetList.push(obj.value);
-        } else {
-            for (var i = 0; i < targetList.length; i++) {
-                if (targetList[i] == obj.value) {
-                    targetList.splice(i, 1);
-                }
-            }
-        }
+        metricSearch.check(obj.value, obj.checked);
     }
 
     function SelectAllFunc(obj) {
-        var check_box_list = document.getElementsByName("MetricCheckBox");
-        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
-        // Clear the global variable properly
-        while(targetList.length) {
-            targetList.pop();
-        }
-        for (var i = 0; i < check_box_list.length; i++) {
-            if (check_box_list[i].parentNode.style.display == 'block') {
-                if (obj.checked) {
-                    check_box_list[i].checked = true;
-                    targetList.push(check_box_list[i].nextSibling.nodeValue);
-                } else {
-                    check_box_list[i].checked = false;
-                }
-            }
-        }
+        metricSearch.selectAll(obj.checked);
     }
 
     function MetricSelectMouseIn() {
@@ -1238,42 +1217,12 @@
     });
 
     function MetricSearchFunc(event) {
-        if (event.keyCode != "13") {
-            return;
+        if (event.keyCode != "13") return;
+        var filterMetric = document.getElementById("filterMetric");
+        metricSearch.search(filterMetric.value);
+        if (filterMetric.value.length) {
+            document.getElementById('filterMetricGroup').value = filterMetric.value;
         }
-        filterMetric = document.getElementById("filterMetric");
-        var check_box_list = document.getElementsByName("MetricCheckBox");
-        var targetList = activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList;
-        // Clear the global variable properly
-        while(targetList.length) {
-            targetList.pop();
-        }
-        if (filterMetric.value.length == 0) {
-            for (var i = 0; i < check_box_list.length; i++) {
-                check_box_list[i].parentNode.style.display = "none";
-                check_box_list[i].checked = false;
-            }
-            return;
-        }
-        var select_all_box = document.getElementsByName("MetricSelectAllBox");
-        select_all_box[0].checked = true;
-        select_all_box[0].parentNode.style.display = "block";
-
-        find = filterMetric.value.replace(/ +/g, '.*');
-        regexp = new RegExp(find, "i");
-
-        for (var i = 0; i < check_box_list.length; i++) {
-            if (check_box_list[i].nextSibling.nodeValue.search(regexp) >= 0) {
-                check_box_list[i].parentNode.style.display = "block";
-                check_box_list[i].checked = true;
-                targetList.push(check_box_list[i].nextSibling.nodeValue);
-            } else {
-                check_box_list[i].parentNode.style.display = "none";
-                check_box_list[i].checked = false;
-            }
-        }
-        var group_name = document.getElementById('filterMetricGroup');
-        group_name.value = filterMetric.value;
     }
 
     function MetricSelectSubmit() {
@@ -1330,11 +1279,7 @@
         while(targetList.length) {
             targetList.pop();
         }
-        var check_box_list = document.getElementsByName("MetricCheckBox");
-        for (var i = 0; i < check_box_list.length; i++) {
-            check_box_list[i].parentNode.style.display = "none";
-            check_box_list[i].checked = false;
-        }
+        metricSearch.hideRows();
         $.ajax({
             url: '/api/show/query',
             type: 'POST',
@@ -2474,47 +2419,15 @@
 
     }
 
-    // Function to rebuild MetricSelectDiv based on active panel
+    // Reset the search view without materializing the complete metric list.
     function rebuildMetricSelectDiv() {
-        var MetricSelectDiv = document.getElementById("MetricSelectResults");
-        // Clear existing checkboxes
-        MetricSelectDiv.innerHTML = '';
-
-        var isSecondary = activePanel === 2;
-        var currentMetricNames = isSecondary ? MetricNames2 : MetricNames;
-
-        var tmp_div = document.createElement("div");
-        var tmp_input = document.createElement("input");
-        tmp_input.setAttribute("name", "MetricSelectAllBox");
-        tmp_input.setAttribute("type", "checkbox");
-        tmp_input.setAttribute("onclick", "SelectAllFunc(this)");
-        tmp_input.setAttribute("value", "SelectAll");
-        tmp_div.style.display = "none";
-
-        var tmp_text = document.createTextNode("SelectAll");
-        tmp_div.appendChild(tmp_input);
-        tmp_div.appendChild(tmp_text);
-        MetricSelectDiv.appendChild(tmp_div);
-
-        for (var i = 0; i < currentMetricNames.length; i++) {
-            tmp_div = document.createElement("div");
-            tmp_input = document.createElement("input");
-            tmp_input.setAttribute("name", "MetricCheckBox");
-            tmp_input.setAttribute("type", "checkbox");
-            tmp_input.setAttribute("onclick", "MetricCheck(this)");
-            tmp_input.setAttribute("value", currentMetricNames[i]);
-            tmp_input.checked = (isSecondary ? CurMetricSelectList2 : CurMetricSelectList).includes(currentMetricNames[i]);
-            tmp_div.style.display = "none";
-
-            tmp_text = document.createTextNode(currentMetricNames[i]);
-            tmp_div.appendChild(tmp_input);
-            tmp_div.appendChild(tmp_text);
-            MetricSelectDiv.appendChild(tmp_div);
-        }
+        if (metricSearch) metricSearch.reset(activePanel === 2 ? MetricNames2 : MetricNames,
+            activePanel === 2 ? CurMetricSelectList2 : CurMetricSelectList);
     }
 
 
     $(document).ready(function () {
+        metricSearch = MetricSearch.install(document.getElementById('MetricSelectResults'));
         metricSearchResize = MetricSearchResize.install(document.getElementById('MetricSelectDiv'));
         // Check if page is embedded
         const urlParams = new URLSearchParams(window.location.search);

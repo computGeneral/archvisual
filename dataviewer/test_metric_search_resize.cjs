@@ -64,7 +64,9 @@ async function bounded(frame) {
         await search(page);
         const initial = await geometry(page);
         near(initial.width, 800); near(initial.height, 300);
-        assert.equal(await page.locator('[name="MetricCheckBox"]:visible').count(), names.length);
+        assert.equal(await page.evaluate(() => CurMetricSelectList.length), names.length);
+        const mounted = await page.locator('[name="MetricCheckBox"]').count();
+        assert(mounted > 0 && mounted <= Math.ceil(initial.height / 15) + 15);
         const selection = await page.evaluate(() => CurMetricSelectList.slice());
         await drag(page, page, 'x', 150, 0);
         let r = await geometry(page);

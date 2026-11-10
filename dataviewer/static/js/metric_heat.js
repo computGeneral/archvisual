@@ -27,6 +27,11 @@
         });
         return height;
     }
+    function updateTimes(state, times) {
+        if (state.times.length === times.length && state.times.every(function (v, i) { return v === times[i]; })) return;
+        state.times = times.slice();
+        state.axisTop = null;
+    }
     function visibleStart(scroll, maxScroll, total, capacity, size) {
         var last = Math.max(0, total - capacity);
         // The viewport's trailing partial cell is not rendered. Reach the
@@ -96,7 +101,7 @@
         return [low, high];
     }
     function newState() {
-        return { mode: 'line', maps: [], times: [], axisTop: defaultAxisTop, config: {}, columnWidth: maxColumnWidth,
+        return { mode: 'line', maps: [], times: [], axisTop: null, config: {}, columnWidth: maxColumnWidth,
             start: 0, end: -1, scrollLeft: 0, pendingScrollLeft: null, nextPlot: 1,
             token: 0, selected: null, notice: '', missing: [], loaded: false, waiting: false, sidebarWidth: defaultSidebarWidth };
     }
@@ -339,6 +344,9 @@
         function render(panel) {
             var s = states[panel], parent = panelWidget(panel);
             if (s.mode !== 'heat' || !parent.host.clientWidth) return;
+            // Measure once when a Heat map actually needs layout. Line loads and
+            // unchanged sample axes on Reload do not measure every label again.
+            if (s.maps.length && s.axisTop === null) s.axisTop = axisTop(s.times);
             parent.empty.classList.toggle('hidden', !!s.maps.length);
             parent.empty.textContent = !s.times.length ? 'Load an H5 file' : 'Select metrics, then Plot';
             parent.host.style.setProperty('--heat-sidebar-width', s.sidebarWidth + 'px');
@@ -602,8 +610,7 @@
             datasetReloaded: function (meta, panel, data, missing) {
                 var s = states[panel];
                 ++s.token; s.waiting = false;
-                s.times = meta.times.slice(); s.config = meta.config || {};
-                s.axisTop = axisTop(s.times);
+                updateTimes(s, meta.times); s.config = meta.config || {};
                 s.start = Math.max(0, Math.min(s.start, s.times.length - 1));
                 s.end = Math.min(Math.max(s.start, s.end), s.times.length - 1);
                 s.missing = missing.slice();
@@ -622,8 +629,7 @@
                 endSidebarDrag(panel);
                 ++s.token; s.loaded = false; s.selected = null; s.notice = ''; s.waiting = false;
                 s.missing = [];
-                s.times = meta.times.slice(); s.config = meta.config || {}; s.start = 0; s.end = s.times.length - 1;
-                s.axisTop = axisTop(s.times);
+                updateTimes(s, meta.times); s.config = meta.config || {}; s.start = 0; s.end = s.times.length - 1;
                 s.scrollLeft = 0; s.pendingScrollLeft = null;
                 if (heat) {
                     var available = new Set(meta.signal), missing = [];
