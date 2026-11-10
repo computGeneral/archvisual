@@ -1113,7 +1113,12 @@
         current_height = parseInt(targetDom.style.height.slice(0, targetDom.style.height.length - 2));
         if (current_height != height) {
             targetDom.style.height = height + "px";
-            targetChart.resize();
+            // CSS min-height can keep the actual size unchanged after Plot.
+            var actualWidth = targetDom.clientWidth, actualHeight = targetDom.clientHeight;
+            if (actualWidth > 0 && actualHeight > 0 &&
+                (targetChart.getWidth() !== actualWidth || targetChart.getHeight() !== actualHeight)) {
+                targetChart.resize();
+            }
         }
     }
 
