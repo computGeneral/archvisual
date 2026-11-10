@@ -665,7 +665,16 @@
                     var name = key, suffix = 2;
                     while (s.maps.some(function (m) { return m.key === name; })) name = key + ' (' + suffix++ + ')';
                     var m = createMap(panel, name, group); s.maps.push(m);
-                    return queryMap(panel, m, true);
+                    try {
+                        // Template import already returned the samples. Validate
+                        // them under the new map name without querying them again.
+                        m.rows = rowsFromGroups({ [name]: m.group }, { [name]: data[key] }, s.times.length);
+                        m.data = data[key]; m.loaded = true; s.loaded = true;
+                        summarize(panel, m); scheduleRender(panel); return true;
+                    } catch (error) {
+                        removeMap(panel, m); status(panel, name + ': ' + error.message, true);
+                        scheduleRender(panel); return false;
+                    }
                 }));
             },
             clear: function (panel) {
