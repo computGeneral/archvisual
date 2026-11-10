@@ -84,9 +84,8 @@ const result = {renderer:expectedRenderer, checks:[], errors:[], dialogs:[], res
             assert(grown.size[1]>initial.size[1]); assert(growing.length>0);
             assert(growing.every(c=>JSON.stringify(c.before)!==JSON.stringify(c.actual)), 'Growth never resizes equal dimensions');
             await resetCalls();
-            // Remove tail groups to exercise height shrink independently of
-            // the existing middle-group axis-index issue (tracked separately).
-            await page.evaluate(panel => {for(let i=9;i>=0;i--)delete_metric_group('Grow '+i,panel);},panel);
+            // Remove from the middle so every remaining axis must be compacted.
+            await page.evaluate(panel => {for(let i=0;i<10;i++)delete_metric_group('Grow '+i,panel);},panel);
             const shrunk=await checkActualSize(panel), shrinking=await calls();
             assert.equal(shrunk.size[1],initial.size[1]); assert(shrinking.length>0);
             assert(shrinking.every(c=>JSON.stringify(c.before)!==JSON.stringify(c.actual)), 'Shrink never resizes equal dimensions');

@@ -1047,55 +1047,54 @@
     }
 
     function delete_metric_group(group_name, panel = 1) {
-        var isSecondary = panel === 2;
-        var targetChart = isSecondary ? myChart2 : myChart;
-        var targetMetricSelectList = isSecondary ? MetricSelectList2 : MetricSelectList;
-        var targetDom = isSecondary ? dom2 : dom;
-        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+        var targetChart = panel === 2 ? myChart2 : myChart;
+        var targetMetricSelectList = panel === 2 ? MetricSelectList2 : MetricSelectList;
+        if (!targetChart || !Object.prototype.hasOwnProperty.call(targetMetricSelectList, group_name)) return;
 
+        // Compact from the full current option, retaining zoom, legend,
+        // axis styling and marker callbacks for every surviving group.
         var option = targetChart.getOption();
-        delete option['legend'][0]['selected'][group_name];
-        var update_option = {
-            dataZoom: [{
-                xAxisIndex: []
-            }, {
-                xAxisIndex: []
-            }],
-            series: [],
-            grid: [],
-            xAxis: [],
-            yAxis: [],
-            legend: option['legend']
-        };
-
-        var nid = 0;
-        var group_map_grid = {};
+        var groupIndices = new Map();
+        option.grid = option.grid.filter(function (grid) { return grid.id !== group_name; });
+        option.grid.forEach(function (grid, index) {
+            groupIndices.set(grid.id, index);
+            grid.top = get_grid_position(index)[0];
+        });
+        ['xAxis', 'yAxis'].forEach(function (key) {
+            option[key] = option[key].filter(function (axis) { return axis.id !== group_name; });
+            option[key].forEach(function (axis) { axis.gridIndex = groupIndices.get(axis.id); });
+        });
+        option.series = option.series.filter(function (series) { return series.name !== group_name; });
+        option.series.forEach(function (series) {
+            series.xAxisIndex = groupIndices.get(series.name);
+            series.yAxisIndex = groupIndices.get(series.name);
+        });
+        option.dataZoom.forEach(function (zoom) {
+            zoom.xAxisIndex = option.xAxis.map(function (_, index) { return index; });
+        });
+        option.legend.forEach(function (legend) {
+            if (legend.selected) delete legend.selected[group_name];
+            if (legend.data) legend.data = legend.data.filter(function (entry) {
+                return (typeof entry === 'string' ? entry : entry.name) !== group_name;
+            });
+        });
+        // replaceMerge preserves indices of matching IDs. Remove the old
+        // coordinate components without painting, then install the compact
+        // arrays in one visible update. Keep the global model/toolbox so
+        // rectangle-zoom mode and its undo history survive the deletion.
+        var components = ['xAxis', 'yAxis', 'grid', 'series', 'legend'];
+        targetChart.setOption({
+            xAxis: [], yAxis: [], grid: [], series: [], legend: [],
+            dataZoom: option.dataZoom.map(function (zoom) { return {id: zoom.id, xAxisIndex: []}; })
+        }, {replaceMerge: components, lazyUpdate: true});
+        targetChart.setOption(option, {replaceMerge: components});
         delete targetMetricSelectList[group_name];
-        for (var id in option['grid']) {
-            if (option['grid'][id]['id'] == group_name) {
-                continue;
-            }
-            update_option = append_new_group(option['grid'][id]['id'], nid, update_option, panel);
-            group_map_grid[option['grid'][id]['id']] = nid;
-            nid += 1;
-        }
-        for (var id in option['series']) {
-            if (option['series'][id]['name'] == group_name) {
-                continue;
-            }
-            tmp = option['series'][id];
-            tmp['xAxisIndex'] = group_map_grid[option['series'][id]['name']];
-            tmp['yAxisIndex'] = group_map_grid[option['series'][id]['name']];
-            update_option['series'].push(tmp);
-        }
-        option_update(update_option, true, panel);
+        update_metric_chart_height(panel);
     }
 
     function option_update(option, force, panel = 1) {
         var isSecondary = panel === 2;
         var targetChart = isSecondary ? myChart2 : myChart;
-        var targetDom = isSecondary ? dom2 : dom;
-        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
 
         if (force) {
             targetChart.setOption(option, {
@@ -1106,7 +1105,15 @@
             targetChart.setOption(option);
         }
 
-        option = targetChart.getOption();
+        update_metric_chart_height(panel);
+    }
+
+    function update_metric_chart_height(panel = 1) {
+        var isSecondary = panel === 2;
+        var targetChart = isSecondary ? myChart2 : myChart;
+        var targetDom = isSecondary ? dom2 : dom;
+        var targetDomHeight = isSecondary ? dom2_fixed_height : dom_fixed_height;
+        var option = targetChart.getOption();
         height = get_grid_position(option['grid'].length)[0];
         height += 50;
         height = Math.ceil(height / targetDomHeight) * targetDomHeight;
