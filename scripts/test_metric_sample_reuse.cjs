@@ -24,9 +24,9 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
 (async()=>{
     const browser=await chromium.launch({executablePath:process.env.HEAT_TEST_CHROME||'/usr/bin/google-chrome',
         headless:true,ignoreDefaultArgs:['--hide-scrollbars'],args:['--no-sandbox','--disable-dev-shm-usage']});
-    // Keep all fixture samples visible in each split panel. The pre-existing
-    // narrow-view scrollbar-gutter end-position defect is recorded separately.
-    const page=await browser.newPage({viewport:{width:2400,height:1050}}),releases=[];
+    // Heat exercises the narrow split's native scroll range, including the
+    // final samples. Line retains its original viewport for this data test.
+    const page=await browser.newPage({viewport:{width:mode==='heat'?1500:2400,height:1050}}),releases=[];
     page.on('pageerror',e=>result.errors.push(String(e)));
     page.on('dialog',async d=>{result.dialogs.push(d.message());await d.dismiss();});
     page.on('request',r=>{if(r.url().endsWith('/api/show/query'))result.queries.push(r.postDataJSON());});

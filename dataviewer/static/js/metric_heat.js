@@ -292,7 +292,7 @@
                 event.preventDefault(); activatePanel(panel);
                 var delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? layout.plotWidth : 1);
                 if (event.shiftKey && !event.ctrlKey) {
-                    s.scrollLeft = Math.max(0, Math.min(viewport.scrollWidth - viewport.clientWidth, s.scrollLeft + delta));
+                    s.scrollLeft = Math.max(0, Math.min(layout.scrollRange, s.scrollLeft + delta));
                     s.pendingScrollLeft = null; scheduleRender(panel); return;
                 }
                 var oldWidth = s.columnWidth;
@@ -315,7 +315,11 @@
                 // Ignore the horizontal events generated while applying the
                 // shared position. Native vertical scrolling remains local.
                 if (viewport.scrollLeft !== w.scrollLeft) {
-                    s.scrollLeft = viewport.scrollLeft; s.pendingScrollLeft = null;
+                    // Native ranges can differ when only some maps need a
+                    // vertical scrollbar. Share a position in sample pixels.
+                    s.scrollLeft = w.layout && w.layout.nativeMax > 0 ?
+                        viewport.scrollLeft / w.layout.nativeMax * w.layout.scrollRange : 0;
+                    s.pendingScrollLeft = null;
                     w.scrollLeft = viewport.scrollLeft;
                 }
                 scheduleRender(panel);
@@ -395,6 +399,7 @@
             if (s.pendingScrollLeft !== null) {
                 s.scrollLeft = s.pendingScrollLeft; s.pendingScrollLeft = null;
             }
+            s.scrollLeft = Math.max(0, Math.min(s.scrollLeft, sampleCount * s.columnWidth - plotWidth));
             var hostRect = parent.host.getBoundingClientRect();
             s.maps.forEach(function (m, index) { renderMap(panel, m, hostRect, layouts[index]); });
         }
@@ -407,6 +412,21 @@
             return { width: width, height: height, left: left, right: right, top: top,
                 plotWidth: width - left - right, plotHeight: height - top - bottomSpace };
         }
+        function nativeScrollMax(w) {
+            var v = w.viewport;
+            var key = [v.scrollWidth, v.clientWidth, v.offsetWidth, v.scrollHeight, v.clientHeight, v.offsetHeight].join(':');
+            if (w.scrollRangeKey !== key) {
+                // With scrollbar-gutter:stable, scrollWidth-clientWidth need
+                // not equal the reachable range. Measure only on geometry
+                // changes and restore synchronously before the browser paints.
+                var left = v.scrollLeft;
+                v.scrollLeft = v.scrollWidth;
+                w.nativeMax = v.scrollLeft;
+                v.scrollLeft = left;
+                w.scrollRangeKey = key;
+            }
+            return w.nativeMax;
+        }
         function renderMap(panel, m, hostRect, layout) {
             var s = states[panel], w = m.widget;
             var width = layout.width, height = layout.height, left = layout.left, top = layout.top;
@@ -415,18 +435,22 @@
             var fits = samplesFit(sampleCount, s.columnWidth, layout.plotWidth);
             var colCount = fits ? sampleCount : Math.max(1, Math.floor(layout.plotWidth / s.columnWidth));
             var rowCount = Math.max(1, Math.floor(layout.plotHeight / rowHeight));
-            var spacerWidth = (fits ? width : Math.max(width, sampleCount * s.columnWidth + left + right)) + 'px';
+            // Give even sub-gutter sample overflow a real native scroll range.
+            var gutter = Math.max(0, w.viewport.offsetWidth - w.viewport.clientWidth);
+            var spacerWidth = (fits ? width : Math.max(width, sampleCount * s.columnWidth + left + right) + gutter) + 'px';
             var spacerHeight = Math.max(height, m.rows.length * rowHeight + top + bottom) + 'px';
             if (w.spacer.style.width !== spacerWidth) w.spacer.style.width = spacerWidth;
             if (w.spacer.style.height !== spacerHeight) w.spacer.style.height = spacerHeight;
-            w.viewport.scrollLeft = s.scrollLeft;
+            // A stale canvas size must not inflate the measured scroll range.
+            w.canvas.style.width = width + 'px'; w.canvas.style.height = height + 'px';
+            layout.scrollRange = fits ? 0 : Math.max(0, sampleCount * s.columnWidth - layout.plotWidth);
+            layout.nativeMax = nativeScrollMax(w);
+            w.viewport.scrollLeft = layout.scrollRange ? s.scrollLeft / layout.scrollRange * layout.nativeMax : 0;
             w.scrollLeft = w.viewport.scrollLeft;
-            // All cards reserve the same scrollbar gutter and share x geometry.
-            s.scrollLeft = w.scrollLeft;
             w.layout = layout;
             var rect = w.viewport.getBoundingClientRect();
             if (rect.bottom <= hostRect.top || rect.top >= hostRect.bottom) return;
-            var firstCol = s.start + visibleStart(w.scrollLeft, w.viewport.scrollWidth - w.viewport.clientWidth,
+            var firstCol = s.start + visibleStart(s.scrollLeft, layout.scrollRange,
                 sampleCount, colCount, s.columnWidth);
             var lastCol = Math.min(s.end + 1, firstCol + colCount);
             var firstRow = visibleStart(w.viewport.scrollTop, w.viewport.scrollHeight - w.viewport.clientHeight,
@@ -453,7 +477,6 @@
             }
             w.chart.dispatchAction({ type: 'hideTip' });
             if (w.chart.getWidth() !== width || w.chart.getHeight() !== height) {
-                w.canvas.style.width = width + 'px'; w.canvas.style.height = height + 'px';
                 w.chart.resize({ width: width, height: height, silent: true });
             }
             var values = [], missing = [], statisticValues = [], statisticMissing = [], labels = [], names = [];
