@@ -332,6 +332,28 @@ def api_show_server_file(request):
 #     return HttpResponse(json.dumps(res), content_type='application/json')
 
 
+def _heat_sample_values(values):
+    """Produce JSON numbers/nulls, preserving integer and floating-point columns."""
+    samples = values.values
+    if isinstance(samples, np.ndarray):
+        if samples.dtype.kind in 'iu':
+            return samples.tolist()
+        if samples.dtype.kind == 'f' and samples.dtype.itemsize <= 8:
+            valid = np.isfinite(samples)
+            if valid.all():
+                return samples.tolist()
+            # Only allocate an object array when nulls must be inserted. Never
+            # write into the loaded column, which may be a shared/strided view.
+            result = samples.astype(object)
+            result[~valid] = None
+            return result.tolist()
+
+    # Nullable/sparse arrays retain their scalar compatibility path. Boolean
+    # columns keep the existing numeric 0/1 representation required by Heat.
+    convert = int if pd.api.types.is_integer_dtype(values.dtype) else float
+    return [convert(v) if pd.notna(v) and np.isfinite(v) else None for v in samples]
+
+
 def get_query_data(query_list, secondary=False, heat=False, data=None, missing=None) -> dict:
     query_data = {}
     state = gl.get_all(secondary=secondary)
@@ -362,9 +384,7 @@ def get_query_data(query_list, secondary=False, heat=False, data=None, missing=N
                     if (not pd.api.types.is_numeric_dtype(values.dtype) or
                             pd.api.types.is_complex_dtype(values.dtype)):
                         raise ValueError(f'Metric must contain real numeric values: {sig}')
-                    query_data[key]['Sig'][sig] = [
-                        float(v) if pd.notna(v) and np.isfinite(v) else None
-                        for v in values.values]
+                    query_data[key]['Sig'][sig] = _heat_sample_values(values)
                 else:
                     query_data[key]['Sig'][sig] = [float(v) for v in exist_obj.loc[:, sig].values]
 

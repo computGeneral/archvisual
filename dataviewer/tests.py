@@ -87,6 +87,125 @@ class HeatQueryTests(SimpleTestCase):
         self.assertNotIn(b'Infinity', response.content)
         self.assertEqual(response.json()['data']['ports']['Sig']['port'], [0, None, None, None, 1.25])
 
+    def test_heat_preserves_signed_and_unsigned_integer_json_values(self):
+        for dtype in ['int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64', '>i8']:
+            with self.subTest(dtype=dtype):
+                info = np.iinfo(dtype)
+                expected = [int(info.min), 0, int(info.max)]
+                frame = pd.DataFrame({'port': np.array(expected, dtype=dtype)})
+                gl.set_value('data', frame)
+                actual = self.query(['port']).json()['data']['ports']['Sig']['port']
+                self.assertEqual(actual, expected)
+                self.assertTrue(all(type(v) is int for v in actual))
+                self.assertEqual(frame['port'].tolist(), expected)
+
+    def test_heat_float_values_keep_precision_negative_zero_and_missing_cells(self):
+        for dtype in ['float16', 'float32', 'float64', '>f8']:
+            info = np.finfo(dtype)
+            finite = np.array([0.0, -0.0, 1.25, -2.5, info.tiny, info.max], dtype=dtype)
+            for values in [finite, np.concatenate([finite, [np.nan, np.inf, -np.inf]]).astype(dtype)]:
+                with self.subTest(dtype=dtype, size=len(values)):
+                    frame = pd.DataFrame({'port': values})
+                    before = frame.copy(deep=True)
+                    gl.set_value('data', frame)
+                    response = self.query(['port'])
+                    self.assertEqual(response.status_code, 200)
+                    self.assertNotIn(b'NaN', response.content)
+                    self.assertNotIn(b'Infinity', response.content)
+                    actual = response.json()['data']['ports']['Sig']['port']
+                    expected = [float(v) if np.isfinite(v) else None for v in values]
+                    self.assertEqual(actual, expected)
+                    self.assertTrue(all(v is None or type(v) is float for v in actual))
+                    self.assertTrue(np.signbit(actual[1]))
+                    self.assertEqual(np.array(actual[:6], dtype='float64').tobytes(),
+                                     finite.astype('float64').tobytes())
+                    pd.testing.assert_frame_equal(frame, before)
+
+    def test_heat_nullable_and_sparse_integer_values_remain_integers(self):
+        for values in [pd.Series([-(2**63), None, 2**63 - 1], dtype='Int64'),
+                       pd.Series([0, None, 2**64 - 1], dtype='UInt64'),
+                       pd.Series([-2, None, 7], dtype='Int8'),
+                       pd.Series([0, 2**53 + 1, -3], dtype=pd.SparseDtype('int64', 0))]:
+            with self.subTest(dtype=str(values.dtype)):
+                gl.set_value('data', pd.DataFrame({'port': values}))
+                expected = [None if pd.isna(v) else int(v) for v in values]
+                actual = self.query(['port']).json()['data']['ports']['Sig']['port']
+                self.assertEqual(actual, expected)
+                self.assertTrue(all(v is None or type(v) is int for v in actual))
+
+    def test_heat_nullable_and_sparse_float_values_keep_missing_semantics(self):
+        for dtype in ['Float32', 'Float64', pd.SparseDtype('float64', np.nan)]:
+            with self.subTest(dtype=str(dtype)):
+                values = pd.Series([0.0, -0.0, 1.25, None, np.inf, -np.inf], dtype=dtype)
+                gl.set_value('data', pd.DataFrame({'port': values}))
+                actual = self.query(['port']).json()['data']['ports']['Sig']['port']
+                self.assertEqual(actual, [0.0, -0.0, 1.25, None, None, None])
+                self.assertTrue(np.signbit(actual[1]))
+                self.assertTrue(all(v is None or type(v) is float for v in actual))
+
+    def test_heat_boolean_values_keep_numeric_zero_one_compatibility(self):
+        for values in [pd.Series([True, False], dtype=bool),
+                       pd.Series([True, False, None], dtype='boolean')]:
+            with self.subTest(dtype=str(values.dtype)):
+                gl.set_value('data', pd.DataFrame({'port': values}))
+                actual = self.query(['port']).json()['data']['ports']['Sig']['port']
+                self.assertEqual(actual, [1.0, 0.0] + ([None] if len(values) == 3 else []))
+                self.assertTrue(all(v is None or type(v) is float for v in actual))
+
+    def test_heat_empty_typed_columns_and_readonly_strided_input(self):
+        for dtype in ['int64', 'uint64', 'float32', 'float64', 'Int64']:
+            with self.subTest(dtype=dtype):
+                gl.set_value('data', pd.DataFrame({'port': pd.Series([], dtype=dtype)}))
+                self.assertEqual(self.query(['port']).json()['data']['ports']['Sig']['port'], [])
+        backing = np.arange(48, dtype='float64').reshape(8, 6)
+        backing[2, 1] = np.nan
+        before = backing.tobytes()
+        backing.flags.writeable = False
+        frame = pd.DataFrame(backing[::2], columns=list('abcdef'), copy=False)
+        self.assertFalse(frame['b'].values.flags.c_contiguous)
+        gl.set_value('data', frame)
+        actual = self.query(['b', 'f']).json()['data']['ports']['Sig']
+        self.assertEqual(actual, {'b': [1.0, None, 25.0, 37.0], 'f': [5.0, 17.0, 29.0, 41.0]})
+        self.assertEqual(backing.tobytes(), before)
+
+    def test_heat_reload_preserves_mixed_numeric_types_and_panel_isolation(self):
+        gl.set_value('data', pd.DataFrame({'old': [3]}))
+        path = self.write_h5(pd.DataFrame({'integer': np.array([0, 2**53 + 1], dtype='uint64'),
+                                         'float': [-0.0, 1.25]}))
+        query = {'g': {'Sig': ['integer', 'float', 'gone']}, 'again': {'Sig': ['integer']}}
+        for method in ['server', 'upload']:
+            with self.subTest(method=method):
+                if method == 'server':
+                    response = self.post('/api/show/server_load', {
+                        'path': str(path), 'reloadQuery': query, 'secondary': True})
+                else:
+                    response = self.client.post('/api/show/upload', {
+                        'file': SimpleUploadedFile(path.name, path.read_bytes()),
+                        'reloadQuery': json.dumps(query), 'secondary': 'true'})
+                self.assertEqual(response.status_code, 200)
+                result = response.json()
+                self.assertEqual(result['missing'], ['gone'])
+                samples = result['reload']['g']['Sig']
+                self.assertEqual(samples, {'integer': [0, 2**53 + 1], 'float': [-0.0, 1.25], 'gone': [None, None]})
+                self.assertTrue(all(type(v) is int for v in samples['integer']))
+                self.assertTrue(all(type(v) is float for v in samples['float']))
+                self.assertTrue(np.signbit(samples['float'][0]))
+                self.assertEqual(result['reload']['again']['Sig']['integer'], samples['integer'])
+                self.assertEqual(self.query(['old']).json()['data']['ports']['Sig']['old'], [3])
+
+    def test_heat_template_import_preserves_integer_and_float_types(self):
+        folder = Path(self.temp.name) / 'dataviewer' / 'static' / 'data'
+        folder.mkdir(parents=True)
+        (folder / 'typed.json').write_text(json.dumps({'g': {'Sig': ['integer', 'float']}}))
+        gl.set_value('data', pd.DataFrame({'integer': np.array([0, 2**64 - 1], dtype='uint64'),
+                                         'float': [1.25, np.inf]}))
+        with self.settings(BASE_DIR=Path(self.temp.name)):
+            response = self.post('/api/temp/import', {'import': 'typed', 'mode': 'heat'})
+        samples = response.json()['data']['g']['Sig']
+        self.assertEqual(samples, {'integer': [0, 2**64 - 1], 'float': [1.25, None]})
+        self.assertTrue(all(type(v) is int for v in samples['integer']))
+        self.assertIs(type(samples['float'][0]), float)
+
     def test_missing_metric_reports_error_instead_of_partial_result(self):
         gl.set_value('data', pd.DataFrame({'present': [3]}))
         response = self.query(['present', 'absent'])
