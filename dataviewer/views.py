@@ -27,6 +27,7 @@ from django.shortcuts import render, HttpResponse
 from django.views.decorators.http import require_POST, require_GET
 from django.views.decorators.csrf import csrf_exempt
 from scripts.metric_csv import read_metric_csv
+from scripts.metric_hdf import read_metric_hdf
 
 
 def _temporary_root():
@@ -126,12 +127,15 @@ def api_show_upload(request):
                     return HttpResponse(f"Error saving HDF5 file: {str(e)}", status=500)
 
             try:
-                with pd.HDFStore(hdf_path, mode='r') as store:
-                    now_data = store['data']
-                    try:
-                        now_config = store['config']
-                    except KeyError:
-                        now_config = pd.DataFrame()
+                if file.name.endswith('.h5'):
+                    now_data, now_config = read_metric_hdf(hdf_path)
+                else:
+                    with pd.HDFStore(hdf_path, mode='r') as store:
+                        now_data = store['data']
+                        try:
+                            now_config = store['config']
+                        except KeyError:
+                            now_config = pd.DataFrame()
 
             except Exception as e:
                 return HttpResponse(f"Error reading HDF5 file: {str(e)}", status=500)
@@ -180,12 +184,7 @@ def api_show_server_load(request):
                     except KeyError:
                         now_config = pd.DataFrame()
         else:
-            with pd.HDFStore(file_path, mode='r') as store:
-                now_data = store['data']
-                try:
-                    now_config = store['config']
-                except KeyError:
-                    now_config = pd.DataFrame()
+            now_data, now_config = read_metric_hdf(file_path)
     except Exception as e:
         return HttpResponse(json.dumps({'code': 1, 'msg': f'Error reading file: {str(e)}'}),
                             content_type='application/json')

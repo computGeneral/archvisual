@@ -18,6 +18,7 @@ import json
 import tempfile
 from pathlib import Path
 from unittest import mock
+import weakref
 
 import numpy as np
 import pandas as pd
@@ -26,6 +27,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploaded
 from django.test import RequestFactory, SimpleTestCase
 
 from dataviewer import gl, views
+from scripts import metric_hdf
 
 
 class HeatQueryTests(SimpleTestCase):
@@ -419,3 +421,222 @@ class H5UploadTests(SimpleTestCase):
             request.close()
             self.assert_empty_temp()
             pd.testing.assert_frame_equal(gl.get_all()['data'], self.frame)
+
+
+class MetricHdfReaderTests(SimpleTestCase):
+    def setUp(self):
+        root = Path(settings.ARCHVISUAL_TEMP_ROOT)
+        root.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=root)
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / 'metrics.h5'
+        self.frame = pd.DataFrame(
+            [[0.0, -0.0, np.nan], [1.25, np.inf, -np.inf], [-2.5, 9.0, 8.0], [3.0, 4.0, 5.0]],
+            index=pd.Index(['末尾', 'first', 'first', '100'], name='采样'),
+            columns=pd.Index(['流量', 'port, bytes', 'active'], name='metrics'))
+        self.config = pd.Series({'ClockGHz': 1.6, 'SamplePeriod': 100}, name='config')
+
+    def write(self, frame=None, *, format='fixed', compressed=True, config=True):
+        with pd.HDFStore(self.path, mode='w', complevel=4 if compressed else 0, complib='blosc') as store:
+            store.put('data', self.frame if frame is None else frame, format=format)
+            if config:
+                store.put('config', self.config)
+
+    def compare(self, *, fast):
+        with pd.HDFStore(self.path, mode='r') as store:
+            expected = store['data']
+            try:
+                expected_config = store['config']
+            except KeyError:
+                expected_config = pd.DataFrame()
+        calls, stores = [], []
+        original = pd.HDFStore.__getitem__
+
+        def get(store, key):
+            calls.append(key)
+            stores.append(store)
+            return original(store, key)
+
+        with mock.patch.object(pd.HDFStore, '__getitem__', get):
+            actual, config = metric_hdf.read_metric_hdf(self.path)
+        self.assertEqual('data' not in calls, fast, calls)
+        self.assertTrue(stores and all(not store.is_open for store in stores))
+        pd.testing.assert_frame_equal(actual, expected, check_exact=True)
+        if isinstance(config, pd.Series):
+            pd.testing.assert_series_equal(config, expected_config, check_exact=True)
+        else:
+            pd.testing.assert_frame_equal(config, expected_config, check_exact=True)
+        if all(dtype == np.dtype('float64') for dtype in actual.dtypes):
+            self.assertEqual(actual.to_numpy().tobytes(), expected.to_numpy().tobytes())
+        return actual
+
+    def test_fast_fixed_preserves_labels_names_order_and_float_bits(self):
+        for compressed in [False, True]:
+            for index in [self.frame.index, pd.Index([900, -2, -2, 100], name='SAMPLEs'),
+                          pd.Index(np.array([9, 2, 2, 1], dtype='uint32')),
+                          pd.Index(['', ' 100 ', 'NaN', 'sample-4'])]:
+                with self.subTest(compressed=compressed, index=index):
+                    self.write(self.frame.set_axis(index), compressed=compressed)
+                    self.compare(fast=True)
+
+    def test_fast_result_shares_read_array_and_survives_file_close_and_removal(self):
+        import tables
+        self.write()
+        arrays = []
+        original = tables.Array.read
+
+        def read(node, *args, **kwargs):
+            array = original(node, *args, **kwargs)
+            if node._v_pathname == '/data/block0_values':
+                arrays.append(weakref.ref(array))
+            return array
+
+        with mock.patch.object(tables.Array, 'read', read):
+            result, _ = metric_hdf.read_metric_hdf(self.path)
+        self.assertEqual(len(arrays), 1)
+        self.assertIsNotNone(arrays[0]())
+        self.assertTrue(np.shares_memory(result.to_numpy(copy=False), arrays[0]()))
+        self.path.unlink()
+        pd.testing.assert_frame_equal(result, self.frame, check_exact=True)
+        self.assertEqual(result['流量'].tolist(), [0, 1.25, -2.5, 3])
+
+    def test_fast_missing_config_and_copy_on_write_option(self):
+        for enabled in [False, True]:
+            with self.subTest(copy_on_write=enabled), pd.option_context('mode.copy_on_write', enabled):
+                self.write(config=False)
+                self.compare(fast=True)
+
+    def test_other_dtypes_and_multiple_blocks_use_pandas(self):
+        frames = [
+            pd.DataFrame({'port': np.array([1, 2], dtype='float32')}),
+            pd.DataFrame({'port': [1, 2]}),
+            pd.DataFrame({'port': [True, False]}),
+            pd.DataFrame({'port': [1 + 2j, 3 + 4j]}),
+            pd.DataFrame({'port': ['text', 'value']}),
+            pd.DataFrame({'port': pd.to_datetime(['2020-01-01', '2020-01-02'])}),
+            pd.DataFrame({'traffic': [1.25, 2.5], 'count': [1, 2]}),
+        ]
+        for frame in frames:
+            with self.subTest(dtypes=frame.dtypes.tolist()):
+                self.write(frame)
+                self.compare(fast=False)
+
+    def test_table_format_and_empty_frames_use_pandas(self):
+        self.write(format='table')
+        self.compare(fast=False)
+        for frame in [self.frame.iloc[:0], self.frame.iloc[:, :0], pd.DataFrame()]:
+            with self.subTest(shape=frame.shape):
+                self.write(frame)
+                self.compare(fast=False)
+
+    def test_special_sample_axes_use_pandas(self):
+        indexes = [
+            pd.MultiIndex.from_tuples([('a', 1), ('b', 2), ('a', 1), ('c', 4)]),
+            pd.date_range('2020-01-01', periods=4, tz='UTC'),
+            pd.timedelta_range('1 day', periods=4),
+            pd.period_range('2020-01', periods=4, freq='M'),
+            pd.Index([1.5, 2.5, 3.5, 4.5]), pd.Index([True, False, True, False]),
+            pd.Index(['nan', 'a', 'b', 'c']),
+            pd.Index([1, 2, 3, 4], name=('sample', 'axis')),
+        ]
+        for index in indexes:
+            with self.subTest(index=index):
+                self.write(self.frame.set_axis(index))
+                self.compare(fast=False)
+
+    def test_special_metric_axes_use_pandas(self):
+        columns = [pd.Index([1, 2, 3]), pd.Index(['nan', 'b', 'c']),
+                   pd.MultiIndex.from_tuples([('port', 1), ('port', 2), ('port', 3)]),
+                   pd.Index(['a', 'b', 'c'], name=42)]
+        for names in columns:
+            with self.subTest(columns=names):
+                self.write(self.frame.set_axis(names, axis=1))
+                self.compare(fast=False)
+
+    def test_unrecognized_metadata_uses_pandas_without_changing_values(self):
+        for path, attribute, value in [('/data', 'future_metadata', 'extension'),
+                                       ('/data/axis1', 'future_metadata', 42),
+                                       ('/data/block0_values', 'future_metadata', 'extension')]:
+            with self.subTest(path=path):
+                self.write()
+                with pd.HDFStore(self.path, mode='a') as store:
+                    store.get_node(path)._v_attrs[attribute] = value
+                self.compare(fast=False)
+
+    def test_non_utf8_encoding_uses_pandas(self):
+        frame = pd.DataFrame({'café': [1.5, 2.5]}, index=['début', 'fin'])
+        with pd.HDFStore(self.path, mode='w') as store:
+            store.put('data', frame, encoding='latin-1')
+        self.compare(fast=False)
+
+    def test_reordered_block_items_use_pandas_to_restore_column_order(self):
+        self.write()
+        with pd.HDFStore(self.path, mode='a') as store:
+            items = store.get_node('/data/block0_items')
+            items[:] = items.read()[::-1]
+        self.compare(fast=False)
+
+    def test_unsupported_value_orientation_uses_pandas(self):
+        import tables
+        self.write()
+        with tables.open_file(self.path, mode='a') as handle:
+            values = handle.get_node('/data/block0_values').read().T
+            handle.remove_node('/data/block0_values')
+            node = handle.create_array('/data', 'block0_values', values)
+            node._v_attrs.transposed = False
+        self.compare(fast=False)
+
+    def test_missing_data_and_corrupt_file_raise_without_retaining_handles(self):
+        with pd.HDFStore(self.path, mode='w') as store:
+            store.put('config', self.config)
+        with self.assertRaises(KeyError):
+            metric_hdf.read_metric_hdf(self.path)
+        self.path.write_bytes(b'not HDF5')
+        with self.assertRaises(Exception):
+            metric_hdf.read_metric_hdf(self.path)
+        self.write()
+        self.compare(fast=True)
+
+    def test_fast_read_io_error_does_not_retry_or_replace_either_panel(self):
+        import tables
+        self.write()
+        previous = [pd.DataFrame({'old': [1.0]}), pd.DataFrame({'other': [2.0]})]
+        for secondary in [False, True]:
+            gl.set_value('data', previous[secondary], secondary=secondary)
+        self.addCleanup(gl.clear)
+        self.addCleanup(lambda: gl.clear(secondary=True))
+        original = tables.Array.read
+        attempts = []
+
+        def read(node, *args, **kwargs):
+            if node._v_pathname == '/data/block0_values':
+                attempts.append(node._v_pathname)
+                raise OSError('injected H5 read failure')
+            return original(node, *args, **kwargs)
+
+        for method in ['server', 'upload']:
+            with self.subTest(method=method), mock.patch.object(tables.Array, 'read', read), \
+                    mock.patch.object(pd.HDFStore, '__getitem__', side_effect=AssertionError('unexpected retry')):
+                if method == 'server':
+                    response = self.client.post('/api/show/server_load', json.dumps({
+                        'path': str(self.path), 'secondary': True}), content_type='application/json')
+                    self.assertEqual(response.json()['code'], 1)
+                else:
+                    response = self.client.post('/api/show/upload', {
+                        'file': SimpleUploadedFile('metrics.h5', self.path.read_bytes()), 'secondary': 'true'})
+                    self.assertEqual(response.status_code, 500)
+                self.assertIn(b'injected H5 read failure', response.content)
+                for panel in [False, True]:
+                    self.assertIs(gl.get_all(secondary=panel)['data'], previous[panel])
+        self.assertEqual(len(attempts), 2)
+
+    def test_fast_reload_validation_failure_retains_old_dataset(self):
+        self.write()
+        original = pd.DataFrame({'old': [99.0]})
+        gl.set_value('data', original)
+        self.addCleanup(gl.clear)
+        response = self.client.post('/api/show/server_load', json.dumps({
+            'path': str(self.path), 'reloadQuery': {'g': {'Sig': 'invalid'}}}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIs(gl.get_all()['data'], original)
