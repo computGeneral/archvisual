@@ -6,7 +6,8 @@
     <title>MetricViewer</title>
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
-    <script src="/static/js/metric_heat.js?v=14"></script>
+    <script src="/static/js/metric_samples.js?v=1"></script>
+    <script src="/static/js/metric_heat.js?v=15"></script>
     <script src="/static/js/metric_search_resize.js?v=1"></script>
     <script src="/static/js/metric_search.js?v=1"></script>
     <link rel="icon" href="/static/image/metricviewer.ico?v=6" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
@@ -517,6 +518,9 @@
     var samplePeriods = {1: null, 2: null};
     var loadedSources = {1: null, 2: null};
     var metricEpoch = {1: 0, 2: 0};
+    // References to displayed Line samples only; no independent dataset cache.
+    var lineSamples = {1: new Map(), 2: new Map()};
+    var lineMissingMetrics = {1: new Set(), 2: new Set()};
     var pendingLocalLoad = null, fileLoadBusy = false;
 
     // Panel 1 (primary)
@@ -988,6 +992,25 @@
         return option;
     }
 
+    function pruneLineSamples(panel) {
+        var groups = panel === 2 ? MetricSelectList2 : MetricSelectList, retained = new Set();
+        Object.keys(groups).forEach(function (key) { groups[key].Sig.forEach(function (name) { retained.add(name); }); });
+        lineSamples[panel].forEach(function (_, name) { if (!retained.has(name)) lineSamples[panel].delete(name); });
+    }
+
+    function rememberLineSamples(data, panel) {
+        var count = (panel === 2 ? TimeLine2 : TimeLine).length;
+        Object.keys(data).forEach(function (key) {
+            Object.keys(data[key].Sig).forEach(function (name) {
+                var values = data[key].Sig[name];
+                if (!lineMissingMetrics[panel].has(name) && Array.isArray(values) && values.length === count) {
+                    lineSamples[panel].set(name, values);
+                }
+            });
+        });
+        pruneLineSamples(panel);
+    }
+
     function append_metrics(update_signal_data, panel = 1) {
         if (!renderingLine && metricHeat && metricHeat.isHeat(panel)) {
             metricHeat.append(update_signal_data, panel);
@@ -1044,6 +1067,7 @@
             update_option = append_group_series(group_name, gridId, update_signal_data[group_name]['Sig'], update_option, panel);
         }
         option_update(update_option, false, panel);
+        rememberLineSamples(update_signal_data, panel);
     }
 
     function delete_metric_group(group_name, panel = 1) {
@@ -1089,6 +1113,7 @@
         }, {replaceMerge: components, lazyUpdate: true});
         targetChart.setOption(option, {replaceMerge: components});
         delete targetMetricSelectList[group_name];
+        pruneLineSamples(panel);
         update_metric_chart_height(panel);
     }
 
@@ -1292,24 +1317,29 @@
             targetList.pop();
         }
         metricSearch.hideRows();
+        var samplePlan = MetricSamples.plan(data, lineSamples[plotPanel]);
+        function finishPlot(res) {
+            if (res.code === 0) {
+                if (plotEpoch !== metricEpoch[plotPanel]) return;
+                append_metrics(samplePlan.merge(res.data), plotPanel);
+                document.getElementById("MetricSelectDiv").style.display = "none";
+            } else {
+                alert(res.msg);
+            }
+        }
+        if (!Object.keys(samplePlan.query).length) {
+            finishPlot({code:0, data:{}});
+            return;
+        }
         $.ajax({
             url: '/api/show/query',
             type: 'POST',
             contentType: 'application/json;charset=utf-8',
             data: JSON.stringify({
-                query: data,
-                secondary: activePanel === 2
+                query: samplePlan.query,
+                secondary: plotPanel === 2
             }),
-            success: function (res) {
-                if (res.code === 0) {
-                    if (plotEpoch !== metricEpoch[plotPanel]) return;
-                    append_metrics(res.data, plotPanel);
-                    // Hide the metric selection dropdown after plotting
-                    document.getElementById("MetricSelectDiv").style.display = "none";
-                } else {
-                    alert(res.msg);
-                }
-            },
+            success: finishPlot,
             error: function () {
                 alert('Failed to plot the metric info...');
             }
@@ -1318,6 +1348,7 @@
 
     function ClearAll(panel = activePanel, forceLine = false) {
         ++metricEpoch[panel];
+        lineSamples[panel].clear();
         if (!forceLine && metricHeat && metricHeat.isHeat(panel)) {
             metricHeat.clear(panel);
             return;
@@ -1399,6 +1430,7 @@
                 return {start:null, end:null, startValue:start, endValue:end};
             })
         });
+        rememberLineSamples(newData, panel);
         if ((option.xAxis || []).length && times.length) {
             chart.dispatchAction({type:'dataZoom', startValue:start, endValue:end, disable_propagation:true});
         } else if (panel === activePanel) {
@@ -2119,6 +2151,8 @@
     function ProcessH5(res, panel = 1, reload = false){
         if (res.code === 0) {
             ++metricEpoch[panel];
+            lineSamples[panel].clear();
+            lineMissingMetrics[panel] = new Set(res.missing || []);
             var reloadRange = lineSampleRange(panel, (panel === 2 ? TimeLine2 : TimeLine).length);
             if (res.data.source) loadedSources[panel] = res.data.source;
             updateReloadMenu();

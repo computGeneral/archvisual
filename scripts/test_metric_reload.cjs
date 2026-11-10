@@ -15,7 +15,7 @@ function csv(name, offset = 0, count = 400, missing = [], period = 100) {
     const file = path.join(output, name + '.csv');
     fs.writeFileSync(file, 'sample,' + Array.from({length:count}, (_, i) => i).join(',') + '\n' +
         (period === null ? '' : 'samplePeriod,' + period + '\n') +
-        Array.from({length:30}, (_, row) => row).filter(row => !missing.includes(row)).map(row =>
+        Array.from({length:31}, (_, row) => row).filter(row => !missing.includes(row)).map(row =>
             'port' + row + ',' + Array.from({length:count}, (_, i) => offset + row * 1000 + i).join(',')).join('\n') + '\n');
     return file;
 }
@@ -213,10 +213,11 @@ function h5(name, offset = 0, count = 400, missing = [], period = 100) {
         csv('primary', 300, 120); await reload(); await frames(); assert.deepEqual((await heat()).maps[1].statistics.map(v=>v[3]),[300,359.5,419]);
         checks.push('Heat missing metrics show gray cells, preserve maps and recover; shrinking range clamps to new last sample');
         const delayedHeat = await hold('/api/show/query');
-        await page.evaluate(() => { window.pendingHeatPlot=metricHeat.plot(['port3'],1); }); await delayedHeat.waiting;
+        // port0..29 are already displayed and can be reused without a query.
+        await page.evaluate(() => { window.pendingHeatPlot=metricHeat.plot(['port30'],1); }); await delayedHeat.waiting;
         csv('primary', 400, 120); await reload(); delayedHeat.release(); await page.evaluate(() => pendingHeatPlot); await frames();
         await cards(1).nth(3).scrollIntoViewIfNeeded(); await frames();
-        assert.equal((await heat()).maps[3].statistics[0][3],3400);
+        assert.equal((await heat()).maps[3].statistics[0][3],30400);
         checks.push('pending Heat plot refreshes from the new dataset and ignores its older response');
         const delayedReload = await hold('/api/show/server_load');
         await page.evaluate(() => reloadFile()); await delayedReload.waiting; await page.evaluate(() => ClearAll()); delayedReload.release(); await idle();

@@ -202,7 +202,7 @@
                 color: settings.color === 'row' ? 'row' : 'raw',
                 min: settings.min === undefined ? '' : String(settings.min),
                 max: settings.max === undefined ? '' : String(settings.max),
-                busy: false, loaded: false, error: '', token: 0 };
+                busy: false, loaded: false, error: '', token: 0, dataEpoch: -1 };
             m.group.Sig = Array.from(new Set(group.Sig));
             var card = document.createElement('section'); card.className = 'heat-map';
             card.dataset.group = key; card.setAttribute('aria-label', key);
@@ -531,13 +531,26 @@
                 return s.missing.includes(name);
             });
             // Restoring existing plots across Line/Heat keeps reload's absent
-            // metrics as empty rows. New Plot/template queries stay strict.
+            // metrics as empty rows. New Plot queries stay strict.
             query.Sig = query.Sig.filter(function (name) { return !missing.includes(name); });
-            return adapter.query({ [m.key]: query }, panel).then(function (data) {
+            var available = new Map();
+            if (removeOnError) s.maps.forEach(function (entry) {
+                if (entry === m || !entry.loaded || entry.busy || entry.dataEpoch !== epoch) return;
+                entry.rows.forEach(function (row) {
+                    // Reload's absent-metric placeholders must not make a new
+                    // Plot succeed for a metric that is not in the loaded file.
+                    if (!s.missing.includes(row.name)) available.set(row.name, row.values);
+                });
+            });
+            var plan = MetricSamples.plan({ [m.key]: query }, available);
+            var request = Object.keys(plan.query).length ? adapter.query(plan.query, panel) : Promise.resolve({});
+            return request.then(function (data) {
                 if (!current()) return false;
+                data = plan.merge(data);
                 missing.forEach(function (name) { data[m.key].Sig[name] = s.times.map(function () { return null; }); });
                 var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length);
                 m.data = data[m.key]; m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
+                m.dataEpoch = epoch;
                 summarize(panel, m); finishWaiting(); scheduleRender(panel); return true;
             }).catch(function (error) {
                 if (current()) {
@@ -620,6 +633,7 @@
                     ++m.token;
                     m.rows = rowsFromGroups({[m.key]:m.group}, data, s.times.length);
                     m.data = data[m.key]; m.loaded = true; m.busy = false; m.error = '';
+                    m.dataEpoch = s.token;
                     m.widget.viewKey = null;
                 });
                 s.loaded = true; status(panel, ''); show(panel);
@@ -670,6 +684,7 @@
                         // them under the new map name without querying them again.
                         m.rows = rowsFromGroups({ [name]: m.group }, { [name]: data[key] }, s.times.length);
                         m.data = data[key]; m.loaded = true; s.loaded = true;
+                        m.dataEpoch = s.token;
                         summarize(panel, m); scheduleRender(panel); return true;
                     } catch (error) {
                         removeMap(panel, m); status(panel, name + ': ' + error.message, true);
