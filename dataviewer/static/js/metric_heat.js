@@ -60,7 +60,7 @@
         var total = sum(1);
         return finite(total) ? total / count : (sum(scale) / count) * scale;
     }
-    function rowsFromGroups(groups, data, count) {
+    function rowsFromGroups(groups, data, count, reusableRows) {
         var seen = new Set(), rows = [];
         Object.keys(groups).forEach(function (group) {
             groups[group].Sig.forEach(function (name) {
@@ -69,6 +69,15 @@
                 var values = data[group] && data[group].Sig[name];
                 if (!Array.isArray(values) || values.length !== count) {
                     throw new Error('Sample count does not match the file: ' + name);
+                }
+                // Callers supply validated rows from the same panel/data epoch.
+                // Their sample arrays are read-only; identity, not metric name
+                // alone, allows skipping validation and full-file statistics.
+                var previous = reusableRows && reusableRows.get(name);
+                if (previous && previous.name === name && previous.values === values) {
+                    rows.push({ name: name, values: values, min: previous.min, max: previous.max,
+                        validCount: previous.validCount, avg: previous.avg });
+                    return;
                 }
                 var min = Infinity, max = -Infinity, validCount = 0;
                 values.forEach(function (v) {
@@ -583,13 +592,16 @@
             // Restoring existing plots across Line/Heat keeps reload's absent
             // metrics as empty rows. New Plot queries stay strict.
             query.Sig = query.Sig.filter(function (name) { return !missing.includes(name); });
-            var available = new Map();
+            var available = new Map(), reusableRows = new Map();
             if (removeOnError) s.maps.forEach(function (entry) {
                 if (entry === m || !entry.loaded || entry.busy || entry.dataEpoch !== epoch) return;
                 entry.rows.forEach(function (row) {
                     // Reload's absent-metric placeholders must not make a new
                     // Plot succeed for a metric that is not in the loaded file.
-                    if (!s.missing.includes(row.name)) available.set(row.name, row.values);
+                    if (!s.missing.includes(row.name)) {
+                        available.set(row.name, row.values);
+                        reusableRows.set(row.name, row);
+                    }
                 });
             });
             var plan = MetricSamples.plan({ [m.key]: query }, available);
@@ -598,7 +610,7 @@
                 if (!current()) return false;
                 data = plan.merge(data);
                 missing.forEach(function (name) { data[m.key].Sig[name] = s.times.map(function () { return null; }); });
-                var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length);
+                var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length, reusableRows);
                 m.data = data[m.key]; m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
                 m.dataEpoch = epoch;
                 summarize(panel, m); finishWaiting(); scheduleRender(panel); return true;

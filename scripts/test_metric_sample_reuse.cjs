@@ -10,7 +10,7 @@ const {execFileSync}=require('node:child_process');
 const [base,outputArg,mode='line']=process.argv.slice(2);
 if(!base||!outputArg||!['line','heat'].includes(mode))throw Error('Usage: URL NEW_OUTPUT line|heat');
 const output=path.resolve(outputArg);fs.mkdirSync(output,{recursive:false});
-const count=24,result={mode,checks:[],queries:[],errors:[],dialogs:[],heatWindows:[]};
+const count=24,result={mode,checks:[],queries:[],errors:[],dialogs:[],heatWindows:[],statisticsScans:[]};
 function fixture(name,offset=0,missing=[]) {
     const values=Object.fromEntries(Array.from({length:6},(_,m)=>['p'+m,
         Array.from({length:count},(_,s)=>m===5?null:m===4?(s===3?null:s/4):offset+m*1000+s)]));
@@ -53,8 +53,17 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
         return result.queries.slice(start).map(q=>({secondary:!!q.secondary,names:Object.values(q.query).flatMap(g=>g.Sig)}));
     }
     async function plot(name,names,expected,panel=1) {
+        const scansBefore=mode==='heat'?await page.evaluate(()=>heatStatisticsScans.map(s=>({...s}))):[];
         const start=result.queries.length;await trigger(name,names,panel);await idle();
         assert.deepEqual(queriedSince(start),expected.length?[{secondary:panel===2,names:expected}]:[],name+' query scope');
+        if(mode==='heat') {
+            const scansAfter=await page.evaluate(()=>heatStatisticsScans.map(s=>({...s})));
+            result.statisticsScans.push({name,panel,before:scansBefore,after:scansAfter});
+            assert.deepEqual(scansAfter.slice(0,scansBefore.length),scansBefore,name+' must not rescan existing samples');
+            const added=scansAfter.slice(scansBefore.length);
+            assert.deepEqual(added.map(s=>s.name),expected,name+' scans only newly queried metrics');
+            added.forEach(s=>{assert.equal(s.passes,s.expectedPasses);assert.equal(s.visits,s.expectedPasses*count);});
+        }
         return Object.keys(await groups(panel)).at(-1);
     }
     async function verify(key,names,values,panel=1) {
@@ -72,15 +81,21 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
                 const rows=await card.evaluate(card=>{
                     const o=echarts.getInstanceByDom(card.querySelector('.heat-canvas')).getOption();
                     const cells=o.series.filter(s=>s.id==='heat-values'||s.id==='heat-missing').flatMap(s=>s.data);
-                    return o.yAxis[0].data.map((name,row)=>({name,cells:cells.filter(c=>c[5]===row).map(c=>[c[4],c[3]])}));
+                    const stats=o.series.filter(s=>s.id==='heat-statistics'||s.id==='heat-statistics-missing').flatMap(s=>s.data);
+                    return o.yAxis[0].data.map((name,row)=>({name,cells:cells.filter(c=>c[5]===row).map(c=>[c[4],c[3]]),
+                        stats:stats.filter(c=>c[1]===row).sort((a,b)=>a[0]-b[0]).map(c=>c[3])}));
                 });
                 result.heatWindows.push({panel,key,requestedLeft:left,extent,actual:await viewport.evaluate(el=>({left:el.scrollLeft,max:el.scrollWidth-el.clientWidth,width:el.clientWidth})),
                     samples:rows.map(r=>r.cells.map(c=>c[0]))});
                 assert.deepEqual(rows.map(r=>r.name),names);
-                rows.forEach((row,i)=>row.cells.forEach(([sample,value])=>{
-                    if(samples[i].has(sample))assert.equal(samples[i].get(sample),value);
-                    samples[i].set(sample,value);
-                }));
+                rows.forEach((row,i)=>{
+                    const valid=values[row.name].filter(v=>v!==null);
+                    assert.deepEqual(row.stats,valid.length?[Math.min(...valid),valid.reduce((a,b)=>a+b,0)/valid.length,Math.max(...valid)]:[null,null,null],key+'/'+row.name+' statistics');
+                    row.cells.forEach(([sample,value])=>{
+                        if(samples[i].has(sample))assert.equal(samples[i].get(sample),value);
+                        samples[i].set(sample,value);
+                    });
+                });
                 if(left===extent.max)break;
             }
             await viewport.evaluate((el,left)=>{el.scrollLeft=left;},extent.old);await frames();
@@ -118,6 +133,33 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
     }
     try {
         await page.goto(base+'/metricviewer');await page.waitForFunction(()=>window.metricHeat);
+        if(mode==='heat') await page.evaluate(()=>{
+            window.heatStatisticsScans=[];
+            const ajax=$.ajax;
+            $.ajax=function(options) {
+                const success=options.success;
+                return ajax.call(this,{...options,success:function(response,...args) {
+                    // Instrument actual response arrays before production code
+                    // receives them. Non-enumerable hooks preserve JSON payloads.
+                    for(const data of [response.data,response.reload]) Object.values(data||{}).forEach(group=>{
+                        if(!group||!group.Sig||Array.isArray(group.Sig))return;
+                        Object.entries(group.Sig).forEach(([name,values])=>{
+                            if(!Array.isArray(values))return;
+                            const record={name,source:options.url,passes:0,visits:0,
+                                expectedPasses:values.some(v=>v!==null)?2:1};
+                            heatStatisticsScans.push(record);
+                            Object.defineProperty(values,'forEach',{value:function(fn,context) {
+                                ++record.passes;
+                                return Array.prototype.forEach.call(this,(value,index,array)=>{
+                                    ++record.visits;return fn.call(context,value,index,array);
+                                });
+                            }});
+                        });
+                    });
+                    if(success)return success.call(this,response,...args);
+                }});
+            };
+        });
         await load(1,primary.file);await selectMode(1);
         const a=await plot('A',['p1','p0'],['p1','p0']);await verify(a,['p1','p0'],primary.values);
         result.checks.push('First Plot queries its complete selection');
@@ -200,6 +242,7 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
         },template);await idle();
         const fromTemplate=await plot('TemplateValues',['p0'],[]);await verify(fromTemplate,['p0'],primary.values);
         result.checks.push('Template-imported samples are reusable by later Plot without another query');
+        if(mode==='heat')result.checks.push('Every repeated Plot reuses full-file statistics without rescanning old arrays; only new response arrays are validated and scanned');
         assert.deepEqual(result.errors,[]);assert.deepEqual(result.dialogs,[]);
         result.status='PASS';await page.screenshot({path:path.join(output,'reuse.png')});
     } catch(e) {result.status='FAIL';result.failure=e.stack;throw e;}
