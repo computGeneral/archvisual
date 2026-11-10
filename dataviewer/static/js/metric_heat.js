@@ -39,6 +39,11 @@
         // by the cell size (including fractional CSS-pixel rounding).
         return scroll > 0 && scroll >= maxScroll - 1 ? last : Math.min(Math.floor(scroll / size), last);
     }
+    function samplesFit(count, columnWidth, plotWidth) {
+        // Dividing the viewport into fractional cells can round the product a
+        // few floating-point units above its width. Keep the final cell visible.
+        return count > 0 && count * columnWidth <= plotWidth + 1e-7;
+    }
     function mean(values, count, scale) {
         if (!count) return null;
         function sum(divisor) {
@@ -102,6 +107,7 @@
     }
     function newState() {
         return { mode: 'line', maps: [], times: [], axisTop: null, config: {}, columnWidth: maxColumnWidth,
+            minColumnWidth: minColumnWidth,
             start: 0, end: -1, scrollLeft: 0, pendingScrollLeft: null, nextPlot: 1,
             token: 0, selected: null, notice: '', missing: [], loaded: false, waiting: false, sidebarWidth: defaultSidebarWidth };
     }
@@ -168,7 +174,8 @@
         function summarize(panel, m) {
             if (m.busy || m.error) return;
             var s = states[panel];
-            mapStatus(m, m.rows.length + ' metrics × ' + s.times.length + ' samples · ' + s.columnWidth + ' px/sample');
+            mapStatus(m, m.rows.length + ' metrics × ' + s.times.length + ' samples · ' +
+                Number(s.columnWidth.toFixed(2)) + ' px/sample');
         }
         function syncHeatControls(m) {
             var w = m.widget;
@@ -289,8 +296,11 @@
                     s.pendingScrollLeft = null; scheduleRender(panel); return;
                 }
                 var oldWidth = s.columnWidth;
-                var nextWidth = Math.max(minColumnWidth, Math.min(maxColumnWidth,
+                var nextWidth = Math.max(s.minColumnWidth, Math.min(maxColumnWidth,
                     Math.round(oldWidth * Math.exp(-delta / 300) * 100) / 100));
+                // The fit floor can have more than two decimal places. Rounding
+                // a tiny wheel step must not reverse the requested direction.
+                nextWidth = delta < 0 ? Math.max(oldWidth, nextWidth) : Math.min(oldWidth, nextWidth);
                 if (nextWidth === oldWidth) return;
                 var scroll = s.pendingScrollLeft === null ? s.scrollLeft : s.pendingScrollLeft;
                 var count = s.end - s.start + 1;
@@ -372,23 +382,40 @@
                 var cssHeight = Math.floor(height) + 'px';
                 if (w.card.style.height !== cssHeight) w.card.style.height = cssHeight;
             });
+            // Measure after applying sidebar/card sizes, including offscreen
+            // maps. One floor per panel keeps every map on the same x scale.
+            var layouts = s.maps.map(function (m) { return mapLayout(m.widget, s.axisTop); });
+            var sampleCount = Math.max(0, s.end - s.start + 1);
+            var plotWidth = layouts.reduce(function (width, layout) { return Math.max(width, layout.plotWidth); }, 0);
+            s.minColumnWidth = sampleCount ? Math.min(maxColumnWidth, Math.max(minColumnWidth, plotWidth / sampleCount)) : minColumnWidth;
+            s.columnWidth = Math.max(s.columnWidth, s.minColumnWidth);
+            if (samplesFit(sampleCount, s.columnWidth, plotWidth)) {
+                s.scrollLeft = 0; s.pendingScrollLeft = null;
+            }
             if (s.pendingScrollLeft !== null) {
                 s.scrollLeft = s.pendingScrollLeft; s.pendingScrollLeft = null;
             }
             var hostRect = parent.host.getBoundingClientRect();
-            s.maps.forEach(function (m) { renderMap(panel, m, hostRect); });
+            s.maps.forEach(function (m, index) { renderMap(panel, m, hostRect, layouts[index]); });
         }
-        function renderMap(panel, m, hostRect) {
-            var s = states[panel], w = m.widget;
+        function mapLayout(w, top) {
             var viewportStyle = getComputedStyle(w.viewport);
             var width = Math.max(1, Math.floor(parseFloat(viewportStyle.width)));
             var height = Math.max(1, Math.floor(parseFloat(viewportStyle.height)));
             var left = Math.min(340, Math.max(140, Math.floor(width * 0.35)));
-            var top = s.axisTop, bottom = bottomSpace, right = 20 + statisticsGap + statistics.length * rowHeight;
-            var colCount = Math.max(1, Math.floor((width - left - right) / s.columnWidth));
-            var rowCount = Math.max(1, Math.floor((height - top - bottom) / rowHeight));
+            var right = 20 + statisticsGap + statistics.length * rowHeight;
+            return { width: width, height: height, left: left, right: right, top: top,
+                plotWidth: width - left - right, plotHeight: height - top - bottomSpace };
+        }
+        function renderMap(panel, m, hostRect, layout) {
+            var s = states[panel], w = m.widget;
+            var width = layout.width, height = layout.height, left = layout.left, top = layout.top;
+            var bottom = bottomSpace, right = layout.right;
             var sampleCount = Math.max(0, s.end - s.start + 1);
-            var spacerWidth = Math.max(width, sampleCount * s.columnWidth + left + right) + 'px';
+            var fits = samplesFit(sampleCount, s.columnWidth, layout.plotWidth);
+            var colCount = fits ? sampleCount : Math.max(1, Math.floor(layout.plotWidth / s.columnWidth));
+            var rowCount = Math.max(1, Math.floor(layout.plotHeight / rowHeight));
+            var spacerWidth = (fits ? width : Math.max(width, sampleCount * s.columnWidth + left + right)) + 'px';
             var spacerHeight = Math.max(height, m.rows.length * rowHeight + top + bottom) + 'px';
             if (w.spacer.style.width !== spacerWidth) w.spacer.style.width = spacerWidth;
             if (w.spacer.style.height !== spacerHeight) w.spacer.style.height = spacerHeight;
@@ -396,7 +423,7 @@
             w.scrollLeft = w.viewport.scrollLeft;
             // All cards reserve the same scrollbar gutter and share x geometry.
             s.scrollLeft = w.scrollLeft;
-            w.layout = { left: left, top: top, plotWidth: width - left - right, plotHeight: height - top - bottom };
+            w.layout = layout;
             var rect = w.viewport.getBoundingClientRect();
             if (rect.bottom <= hostRect.top || rect.top >= hostRect.bottom) return;
             var firstCol = s.start + visibleStart(w.scrollLeft, w.viewport.scrollWidth - w.viewport.clientWidth,
