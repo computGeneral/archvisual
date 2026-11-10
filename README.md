@@ -170,6 +170,45 @@ Or replace `localhost` with your server's IP address if running remotely.
 
 
 
+## MetricViewer renderer optimization (future work)
+
+Line and Heat currently use **Canvas**; there is no renderer selector or automatic
+switching threshold. SVG remains a candidate for future Line optimization.
+
+- **Line:** SVG is worth evaluating when a moderate number of curves contain many
+  samples. A curve can use one SVG path rather than one element per sample,
+  although point symbols, labels and other decorations also contribute to cost.
+  Sample count alone cannot determine which renderer is faster.
+- **Small Line plots:** current measurements show little difference, without a
+  consistent winner. More curves, frequent updates, browser implementation and
+  hardware acceleration can change the result.
+- **Heat:** retain Canvas as the current preference for many independently colored
+  cells. The relevant size is the visible rows multiplied by visible columns,
+  since Heat renders visible windows. A direct Heat Canvas/SVG comparison has
+  **not** been measured; this preference is not a measured speedup claim.
+
+The 2026-11-10 Line diagnostic used a 10,000-metric by 10,000-sample H5 dataset,
+selecting only 8 then 32 curves, with all queried values and curve styles retained:
+
+| Operation | Canvas | SVG |
+|---|---:|---:|
+| First Plot, 8 curves with 10,000 samples each | 2.936 s | 0.729 s |
+| Append curves to reach 32 total | 10.543 s | 2.330 s |
+
+These are medians of three alternating rounds in headless Chrome 146 with
+**software rendering**, measured from request dispatch through response handling
+and two animation-frame opportunities, not physical display completion. A
+separate single-round 15-sample comparison showed little difference. These
+results do not establish desktop GPU performance or a universal sample threshold.
+
+Before changing the default, compare real desktop browsers with hardware
+acceleration, larger curve counts, redraw/interaction latency and memory use.
+Verify zoom/pan, tooltips/pins/markers, stacking, group deletion, Reload, split
+panels, Metric–Trace synchronization and Line/Heat switching. Any future automatic
+selection needs measured crossover points and must preserve every sample and its
+precision. Renderer choice affects frontend drawing, not H5 reading itself.
+See the [ECharts renderer guidance](https://echarts.apache.org/handbook/en/best-practices/canvas-vs-svg/).
+
 ## MetricViewer Heat mode
 
 **Load → reload** rereads the active panel's current CSV/H5 and keeps existing
