@@ -2,6 +2,7 @@
  * NODE_PATH=<existing Playwright> node scripts/test_metric_sample_reuse.cjs URL NEW_OUTPUT line|heat
  */
 'use strict';
+const {observeHeat} = require('./heat_test_support.cjs');
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -27,6 +28,7 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
     // Heat exercises the narrow split's native scroll range, including the
     // final samples. Line retains its original viewport for this data test.
     const page=await browser.newPage({viewport:{width:mode==='heat'?1500:2400,height:1050}}),releases=[];
+    await observeHeat(page);
     page.on('pageerror',e=>result.errors.push(String(e)));
     page.on('dialog',async d=>{result.dialogs.push(d.message());await d.dismiss();});
     page.on('request',r=>{if(r.url().endsWith('/api/show/query'))result.queries.push(r.postDataJSON());});
@@ -79,8 +81,8 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
             for(let left=0;;left=Math.min(extent.max,left+extent.step)) {
                 await viewport.evaluate((el,left)=>{el.scrollLeft=left;},left);await frames();
                 const rows=await card.evaluate(card=>{
-                    const o=echarts.getInstanceByDom(card.querySelector('.heat-canvas')).getOption();
-                    const cells=o.series.filter(s=>s.id==='heat-values'||s.id==='heat-missing').flatMap(s=>s.data);
+                    const o=heatTestChart(card.querySelector('.heat-canvas')).getOption();
+                    const cells=heatTestCells(card.querySelector('.heat-canvas'));
                     const stats=o.series.filter(s=>s.id==='heat-statistics'||s.id==='heat-statistics-missing').flatMap(s=>s.data);
                     return o.yAxis[0].data.map((name,row)=>({name,cells:cells.filter(c=>c[5]===row).map(c=>[c[4],c[3]]),
                         stats:stats.filter(c=>c[1]===row).sort((a,b)=>a[0]-b[0]).map(c=>c[3])}));
@@ -113,7 +115,7 @@ let primary=fixture('primary'),other=fixture('secondary',90000);
                 const index=await cards(panel).evaluateAll((nodes,key)=>nodes.findIndex(n=>n.dataset.group===key),key);
                 const card=cards(panel).nth(index);await card.scrollIntoViewIfNeeded();await frames();
                 const point=await card.evaluate(card=>{
-                    const dom=card.querySelector('.heat-canvas'),chart=echarts.getInstanceByDom(dom),rect=dom.getBoundingClientRect();
+                    const dom=card.querySelector('.heat-canvas'),chart=heatTestChart(dom),rect=dom.getBoundingClientRect();
                     const xy=chart.convertToPixel({xAxisIndex:0,yAxisIndex:0},[0,0]);return {x:rect.x+xy[0],y:rect.y+xy[1]};
                 });await page.mouse.click(point.x,point.y);await page.keyboard.press('Delete');await frames();
             }

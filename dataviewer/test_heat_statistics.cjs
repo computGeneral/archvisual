@@ -3,6 +3,7 @@
  * Generates independent math.fsum reference fixtures under HEAT_TEST_OUTPUT.
  */
 'use strict';
+const {observeHeat} = require('../scripts/heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -44,6 +45,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
     const browser = await chromium.launch({ executablePath: process.env.HEAT_TEST_CHROME || '/usr/bin/google-chrome',
         headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
+    await observeHeat(page);
     const errors = [], checks = [];
     page.on('pageerror', error => errors.push(error.stack || error.message));
     const cards = panel => page.locator(`.heat-host[data-panel="${panel}"] .heat-map`);
@@ -72,7 +74,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
     async function measure(panel = 1, index = 0) {
         await cards(panel).nth(index).scrollIntoViewIfNeeded(); await frames();
         return cards(panel).nth(index).evaluate((card, panel) => {
-            const canvas = card.querySelector('.heat-canvas'), chart = echarts.getInstanceByDom(canvas), o = chart.getOption();
+            const canvas = card.querySelector('.heat-canvas'), chart = heatTestChart(canvas), o = chart.getOption();
             const expected = statsExpected[panel], names = o.yAxis[0].data, labels = o.xAxis[0].data, grid = o.grid[0], stats = o.grid[1];
             const axis = chart.getViewOfComponentModel(chart.getModel().getComponent('xAxis', 0)).group;
             const axisRect = axis.getBoundingRect().clone();
@@ -85,7 +87,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
                 grid.left + grid.width / 2 - legendRect.width / 2));
             if (Math.abs(legendRect.x - targetLeft) > 1 || legendRect.x < -1 ||
                 legendRect.x + legendRect.width > chart.getWidth() + 1) throw Error('Color bar must center under sample cells and fit the viewport');
-            const cells = o.series.filter(s => s.id === 'heat-values' || s.id === 'heat-missing').flatMap(s => s.data);
+            const cells = heatTestCells(card.querySelector('.heat-canvas'));
             const summary = o.series.filter(s => s.id === 'heat-statistics' || s.id === 'heat-statistics-missing').flatMap(s => s.data);
             if (cells.length !== names.length * labels.length || summary.length !== names.length * 3 ||
                 new Set(summary.map(v => v[0] + ':' + v[1])).size !== summary.length) throw Error('Missing or duplicate sample/statistic cells');
@@ -115,7 +117,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
     }
     async function statisticPoint(column, row) {
         return cards(1).first().evaluate((card, { column, row }) => {
-            const canvas = card.querySelector('.heat-canvas'), chart = echarts.getInstanceByDom(canvas), rect = canvas.getBoundingClientRect();
+            const canvas = card.querySelector('.heat-canvas'), chart = heatTestChart(canvas), rect = canvas.getBoundingClientRect();
             const p = chart.convertToPixel({ seriesIndex: 2 }, [column, row]);
             return { x: rect.left + p[0], y: rect.top + p[1] };
         }, { column, row });
@@ -144,7 +146,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
         }
         await measure();
         const pixel = await cards(1).first().evaluate(card => {
-            const el = card.querySelector('.heat-canvas'), chart = echarts.getInstanceByDom(el), canvas = el.querySelector('canvas');
+            const el = card.querySelector('.heat-canvas'), chart = heatTestChart(el), canvas = el.querySelector('canvas');
             const p = chart.convertToPixel({ seriesIndex: 2 }, [2, 0]), ratio = canvas.width / chart.getWidth();
             return Array.from(canvas.getContext('2d').getImageData(Math.floor(p[0] * ratio), Math.floor(p[1] * ratio), 1, 1).data);
         });
@@ -177,7 +179,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
         await page.setViewportSize({ width: 641, height: 481 }); await frames();
         await measure(1); await measure(2);
         assert(await cards(2).first().evaluate(card => {
-            const vm = echarts.getInstanceByDom(card.querySelector('.heat-canvas')).getOption().visualMap[0];
+            const vm = heatTestChart(card.querySelector('.heat-canvas')).getOption().visualMap[0];
             return vm.itemHeight < 130 || vm.textStyle.fontSize < 12;
         }));
         await page.screenshot({ path: path.join(output, 'narrow-colorbar.png') });
@@ -198,7 +200,7 @@ for label, count, offset in [('original', 257, 0), ('reload', 137, 500), ('longl
         await page.evaluate(() => setSplitMode('single')); await page.evaluate(() => setActivePanel(1));
         await load(1, 'longlabels'); await ready(1); await measure(1, 1);
         const longLayout = await cards(1).nth(1).evaluate(card => ({
-            top: echarts.getInstanceByDom(card.querySelector('.heat-canvas')).getOption().grid[0].top,
+            top: heatTestChart(card.querySelector('.heat-canvas')).getOption().grid[0].top,
             height: card.getBoundingClientRect().height
         }));
         assert(longLayout.top > 52); assert(longLayout.height >= 140 && longLayout.height < 241);

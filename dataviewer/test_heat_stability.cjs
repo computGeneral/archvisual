@@ -3,6 +3,7 @@
  * Uses the real example H5 and ordinary 15px scrollbars, including split views.
  */
 'use strict';
+const {observeHeat} = require('../scripts/heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,6 +21,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         args: ['--no-sandbox', '--disable-dev-shm-usage']
     });
     const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+    await observeHeat(page);
     const errors = [], checks = [];
     page.on('pageerror', error => errors.push(error.stack || error.message));
     try {
@@ -31,7 +33,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
             const original = echarts.init;
             echarts.init = function (...args) {
                 const chart = original.apply(this, args);
-                if (args[0].classList.contains('heat-canvas')) {
+                if (args[0].classList.contains('heat-axes')) {
                     const resize = chart.resize;
                     chart.resize = function (...resizeArgs) {
                         heatStability.resizes++;
@@ -61,7 +63,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
             return page.evaluate(() => {
                 document.querySelectorAll('.heat-canvas').forEach(element => {
                     if (!element.getBoundingClientRect().height) return;
-                    const chart = echarts.getInstanceByDom(element), option = chart.getOption(), grid = option.grid[0], stats = option.grid[1];
+                    const chart = heatTestChart(element), option = chart.getOption(), grid = option.grid[0], stats = option.grid[1];
                     if (stats.width !== 48 || stats.top !== grid.top || stats.height !== grid.height ||
                         Math.abs(stats.left - grid.left - grid.width - 8) > 1e-9 || stats.left + stats.width > chart.getWidth()) {
                         throw new Error('Statistics must stay aligned and visible at fixed 16px width');
@@ -128,7 +130,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         assert((await counts()).renders > beforeScroll.renders, 'actual scrolling must update visible samples');
         const point = await page.evaluate(() => {
             const element = document.querySelector('.heat-host[data-panel="1"] .heat-canvas');
-            const chart = echarts.getInstanceByDom(element), rect = element.getBoundingClientRect();
+            const chart = heatTestChart(element), rect = element.getBoundingClientRect();
             const point = chart.convertToPixel({ seriesIndex: 0 }, [0, 0]);
             return { x: rect.left + point[0], y: rect.top + point[1] };
         });

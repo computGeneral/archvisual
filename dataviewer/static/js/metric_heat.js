@@ -124,6 +124,58 @@
     function install(adapter) {
         var states = { 1: newState(), 2: newState() }, widgets = {}, active = 1;
         var mode = document.getElementById('metricMode');
+        var dprMedia = null;
+        function dprChanged() {
+            stopDprWatch(); startDprWatch();
+            [1, 2].forEach(function (panel) {
+                states[panel].maps.forEach(function (m) { m.widget.viewKey = null; });
+                scheduleRender(panel);
+            });
+        }
+        function startDprWatch() {
+            if (dprMedia || !window.matchMedia) return;
+            dprMedia = window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
+            dprMedia.addEventListener('change', dprChanged);
+        }
+        function stopDprWatch() {
+            if (dprMedia) dprMedia.removeEventListener('change', dprChanged);
+            dprMedia = null;
+        }
+        function selectCell(panel, m, value) {
+            if (!value || !m.rows[value[5]]) return;
+            activatePanel(panel);
+            var s = states[panel];
+            s.selected = { key: m.key, name: m.rows[value[5]].name };
+            s.maps.forEach(function (entry) { entry.widget.card.classList.toggle('heat-map-selected', entry === m); });
+            mapStatus(m, 'Selected: ' + s.selected.name);
+        }
+        function releaseLegend(w) {
+            if (w.legendBinding) w.legendBinding.dispose();
+            w.legendBinding = null;
+        }
+        function bindLegend(w) {
+            releaseLegend(w);
+            // The bundled ECharts view already supplies the exact hover range and
+            // indicator. Keep this adapter beside the existing legend sizing adapter.
+            var model = w.chart.getModel().getComponent('visualMap');
+            var view = w.chart.getViewOfComponentModel(model), group = view._shapes.mainGroup;
+            var find = model.findTargetDataIndices;
+            var relay = function (range) {
+                w.cells.highlightRange(range);
+                return find.apply(this, arguments);
+            };
+            var leave = function () { w.cells.highlightRange(null); };
+            model.findTargetDataIndices = relay; group.on('mouseout', leave);
+            w.legendBinding = {
+                show: function (value) { view._showIndicator(value, value); },
+                hide: function () { view._hideIndicator(); },
+                dispose: function () {
+                    group.off('mouseout', leave);
+                    if (model.findTargetDataIndices === relay) model.findTargetDataIndices = find;
+                    view._hideIndicator();
+                }
+            };
+        }
 
         function syncControls() {
             var heat = states[active].mode === 'heat';
@@ -240,11 +292,13 @@
             viewport.setAttribute('aria-label', key + ': samples and metrics');
             var spacer = document.createElement('div'); spacer.className = 'heat-spacer';
             var canvas = document.createElement('div'); canvas.className = 'heat-canvas';
+            var axes = document.createElement('div'); axes.className = 'heat-axes'; canvas.appendChild(axes);
+            startDprWatch();
             spacer.appendChild(canvas); viewport.appendChild(spacer);
             card.appendChild(viewport); card.appendChild(sidebar); card.appendChild(resizer);
             parent.host.appendChild(card);
             var w = m.widget = { card: card, sidebar: sidebar, controls: controls, status: info, viewport: viewport, description: description,
-                spacer: spacer, canvas: canvas, resizer: resizer, chart: null, viewKey: null, layout: null, legendLayout: null, scrollLeft: 0,
+                spacer: spacer, canvas: canvas, axes: axes, cells: null, dpr: null, legendBinding: null, resizer: resizer, chart: null, viewKey: null, layout: null, legendLayout: null, scrollLeft: 0,
                 color: controls.querySelector('[name="heatColor"]'),
                 min: controls.querySelector('[name="heatMin"]'), max: controls.querySelector('[name="heatMax"]') };
             syncHeatControls(m);
@@ -337,13 +391,21 @@
             parent.intersections.observe(card);
             return m;
         }
+        function invalidateSamples(m) {
+            var w = m.widget;
+            if (w.cells) w.cells.suspend();
+            w.viewKey = null; w.rows = null; w.times = null;
+        }
         function disposeMap(panel, m) {
             ++m.token;
             if (panelWidget(panel).drag && panelWidget(panel).drag.owner === m) endSidebarDrag(panel);
             var w = m.widget;
             w.resize.disconnect(); panelWidget(panel).intersections.unobserve(w.card);
+            releaseLegend(w);
+            if (w.cells) w.cells.dispose();
             if (w.chart) w.chart.dispose();
             w.card.remove();
+            if (![1, 2].some(function (p) { return states[p].maps.some(function (entry) { return entry !== m; }); })) stopDprWatch();
         }
         function removeMap(panel, m) {
             var s = states[panel];
@@ -359,7 +421,12 @@
             var s = states[panel], w = panelWidget(panel), heat = s.mode === 'heat';
             adapter.lineElement(panel).classList.toggle('hidden', heat);
             w.host.classList.toggle('hidden', !heat);
-            if (!heat) endSidebarDrag(panel);
+            if (!heat) {
+                endSidebarDrag(panel);
+                s.maps.forEach(function (m) {
+                    invalidateSamples(m);
+                });
+            }
             if (heat) { rangeInputs(panel); scheduleRender(panel); }
             else adapter.resizeLine(panel);
             if (panel === active) syncControls();
@@ -469,34 +536,43 @@
             try { scale = bounds(m.rows, normal, m.min, m.max); }
             catch (error) { m.error = error.message; mapStatus(m, error.message, true); return; }
             var viewKey = JSON.stringify([width, height, firstCol, lastCol, firstRow, lastRow,
-                s.columnWidth, m.color, scale, m.busy]);
+                s.columnWidth, m.color, scale, m.busy, window.devicePixelRatio || 1]);
             if (w.viewKey === viewKey && w.rows === m.rows && w.times === s.times) {
                 if (!m.error) summarize(panel, m);
                 return;
             }
-            if (!w.chart) {
-                w.chart = echarts.init(w.canvas, null, { renderer: 'canvas' });
-                w.chart.on('click', function (params) {
-                    if (!params.value || params.value[5] === undefined) return;
-                    activatePanel(panel);
-                    s.selected = { key: m.key, name: m.rows[params.value[5]].name };
-                    s.maps.forEach(function (entry) { entry.widget.card.classList.toggle('heat-map-selected', entry === m); });
-                    mapStatus(m, 'Selected: ' + s.selected.name);
+            var dpr = window.devicePixelRatio || 1;
+            if (!w.chart || w.dpr !== dpr) {
+                releaseLegend(w);
+                if (w.cells) w.cells.dispose();
+                if (w.chart) w.chart.dispose();
+                w.chart = echarts.init(w.axes, null, { renderer: 'canvas', devicePixelRatio: dpr });
+                w.dpr = dpr; w.legendLayout = null;
+                w.statisticHover = false;
+                w.chart.on('click', function (params) { selectCell(panel, m, params.value); });
+                w.chart.on('mouseover', function (params) { w.statisticHover = params.seriesId === 'heat-statistics'; });
+                w.chart.on('mouseout', function () { w.statisticHover = false; });
+                w.cells = MetricHeatCanvas.create(w.canvas, {
+                    echarts: echarts, palette: palette, colorValue: colorValue,
+                    select: function (value) { selectCell(panel, m, value); },
+                    format: function (value) { return w.tooltipFormatter({ value: value }); },
+                    cursor: function (value) { w.chart.getZr().setCursorStyle(value); },
+                    showIndicator: function (value) { if (w.legendBinding) w.legendBinding.show(value); },
+                    hideIndicator: function (keepStatistic) {
+                        // ECharts may already have shown a statistic's indicator
+                        // before the sample layer processes its queued mouseout.
+                        if (w.legendBinding && (!keepStatistic || !w.statisticHover)) w.legendBinding.hide();
+                    }
                 });
             }
             w.chart.dispatchAction({ type: 'hideTip' });
             if (w.chart.getWidth() !== width || w.chart.getHeight() !== height) {
                 w.chart.resize({ width: width, height: height, silent: true });
             }
-            var values = [], missing = [], statisticValues = [], statisticMissing = [], labels = [], names = [];
+            var statisticValues = [], statisticMissing = [], labels = [], names = [];
             for (var x = firstCol; x < lastCol; x++) labels.push(String(s.times[x]));
             for (var y = firstRow; y < lastRow; y++) {
                 var row = m.rows[y]; names.push(row.name);
-                for (var c = firstCol; c < lastCol; c++) {
-                    var raw = row.values[c], v = colorValue(row, raw, normal);
-                    var point = [c - firstCol, y - firstRow, v === null ? 0 : v, raw, c, y];
-                    (v === null ? missing : values).push(point);
-                }
                 statistics.forEach(function (statistic, index) {
                     var raw = finite(row[statistic]) ? row[statistic] : null;
                     var v = colorValue(row, raw, normal);
@@ -529,7 +605,7 @@
                     axisTick: { show: false } },
                     { type: 'category', gridIndex: 1, data: names, inverse: true,
                         axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false } }],
-                tooltip: { trigger: 'item', confine: true, formatter: function (p) {
+                tooltip: { trigger: 'item', confine: true, formatter: w.tooltipFormatter = function (p) {
                     var v = p.value, r = m.rows[v[5]], statistic = v[4] === -1;
                     var raw = statistic ? v[3] : r.values[v[4]];
                     return '<b>' + escapeHtml(r.name) + '</b><br>' + (statistic ?
@@ -547,10 +623,10 @@
                     textStyle: { fontSize: legend ? legend.fontSize : 12 }, text: legendText,
                     inRange: { color: palette } },
                 series: [
-                    { id: 'heat-values', type: 'heatmap', data: values, progressive: 0,
+                    { id: 'heat-values', type: 'heatmap', data: [], progressive: 0,
                         itemStyle: { borderColor: '#e2e8ee', borderWidth: borderWidth },
                         emphasis: { itemStyle: { borderColor: '#111', borderWidth: borderWidth * 2 } } },
-                    { id: 'heat-missing', type: 'heatmap', data: missing, progressive: 0,
+                    { id: 'heat-missing', type: 'heatmap', data: [], progressive: 0,
                         itemStyle: { color: '#b9bec5', borderColor: '#e2e8ee', borderWidth: borderWidth } },
                     { id: 'heat-statistics', type: 'heatmap', xAxisIndex: 1, yAxisIndex: 1, data: statisticValues, progressive: 0,
                         itemStyle: { borderColor: '#e2e8ee', borderWidth: 1 },
@@ -560,6 +636,28 @@
                 ]
             });
             fitLegend(w, width, left, gridWidth, legendKey);
+            bindLegend(w);
+            var xs = [], ys = [];
+            for (var col = 0; col < labels.length; ++col) xs.push(w.chart.convertToPixel({ xAxisIndex: 0 }, col));
+            for (var rowIndex = 0; rowIndex < names.length; ++rowIndex) ys.push(w.chart.convertToPixel({ yAxisIndex: 0 }, rowIndex));
+            // ECharts keeps base cells under emphasis when its display-object
+            // threshold enables a hover layer. Preserve the same edge blending
+            // without constructing those per-sample objects.
+            var displayCount = xs.length * ys.length;
+            w.chart.getZr().storage.traverse(function (element) { if (!element.isGroup) ++displayCount; });
+            var hoverLayer = displayCount > w.chart.getModel().get('hoverLayerThreshold');
+            [2, 3].forEach(function (index) {
+                w.chart.getModel().getSeriesByIndex(index).getData().eachItemGraphicEl(function (element) {
+                    if (element.states.emphasis) element.states.emphasis.hoverLayer = hoverLayer;
+                });
+            });
+            w.cells.render({ rows: m.rows, times: s.times, firstCol: firstCol, lastCol: lastCol,
+                firstRow: firstRow, lastRow: lastRow, left: left, top: top, width: width, height: height,
+                gridWidth: gridWidth, gridHeight: gridHeight, columnWidth: s.columnWidth,
+                bandWidth: w.chart.getModel().getComponent('xAxis', 0).axis.getBandWidth(),
+                bandHeight: w.chart.getModel().getComponent('yAxis', 0).axis.getBandWidth(),
+                x: xs, y: ys, dpr: dpr, normal: normal, scale: scale,
+                hoverLayer: hoverLayer });
             w.canvas.style.position = 'sticky';
             w.viewKey = viewKey; w.rows = m.rows; w.times = s.times;
             if (m.error) mapStatus(m, m.error, true);
@@ -611,6 +709,7 @@
                 data = plan.merge(data);
                 missing.forEach(function (name) { data[m.key].Sig[name] = s.times.map(function () { return null; }); });
                 var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length, reusableRows);
+                invalidateSamples(m);
                 m.data = data[m.key]; m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
                 m.dataEpoch = epoch;
                 summarize(panel, m); finishWaiting(); scheduleRender(panel); return true;
@@ -632,6 +731,7 @@
                 var m = old.find(function (entry) { return entry.key === key; });
                 if (!m) m = createMap(panel, key, groups[key]);
                 m.group = clone(groups[key]); m.group.Sig = Array.from(new Set(m.group.Sig));
+                invalidateSamples(m);
                 m.rows = []; m.data = null; m.loaded = false; m.error = '';
                 syncHeatControls(m); m.widget.card.classList.remove('heat-map-selected');
                 m.widget.viewport.scrollTop = 0;
@@ -639,6 +739,7 @@
             });
             old.forEach(function (m) { if (!maps.includes(m)) disposeMap(panel, m); });
             s.maps = maps; s.selected = null;
+            if (!maps.length && !states[3 - panel].maps.length) stopDprWatch();
             return Promise.all(maps.map(function (m) { return queryMap(panel, m, false); }));
         }
         function setMode(value, panel) {
@@ -696,7 +797,7 @@
                     m.rows = rowsFromGroups({[m.key]:m.group}, data, s.times.length);
                     m.data = data[m.key]; m.loaded = true; m.busy = false; m.error = '';
                     m.dataEpoch = s.token;
-                    m.widget.viewKey = null;
+                    invalidateSamples(m);
                 });
                 s.loaded = true; status(panel, ''); show(panel);
             },
@@ -721,6 +822,7 @@
                     s.loaded = true; replaceGroups(groups, panel); show(panel);
                 } else {
                     s.maps.forEach(function (m) { disposeMap(panel, m); }); s.maps = [];
+                    if (!states[3 - panel].maps.length) stopDprWatch();
                 }
             },
             plot: function (names, panel) {
@@ -758,6 +860,7 @@
                 var s = states[panel]; ++s.token;
                 s.maps.forEach(function (m) { disposeMap(panel, m); });
                 s.maps = []; s.selected = null; s.notice = ''; s.loaded = true; s.nextPlot = 1; s.waiting = false;
+                if (!states[3 - panel].maps.length) stopDprWatch();
                 status(panel, ''); scheduleRender(panel);
             },
             removeSelected: function (panel) {
@@ -768,6 +871,7 @@
                 m.group.Sig = m.group.Sig.filter(function (name) { return name !== selected.name; });
                 if (!m.group.Sig.length) removeMap(panel, m);
                 else {
+                    invalidateSamples(m);
                     m.rows = m.rows.filter(function (row) { return row.name !== selected.name; });
                     m.widget.card.classList.remove('heat-map-selected');
                 }

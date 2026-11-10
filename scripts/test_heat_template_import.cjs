@@ -3,6 +3,7 @@
  * CSV/H5 fixtures, templates and receipts stay in NEW_OUTPUT, outside the source tree.
  */
 'use strict';
+const {observeHeat} = require('./heat_test_support.cjs');
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -40,6 +41,7 @@ const template = path.relative(path.resolve(__dirname,'../dataviewer/static/data
     const browser = await chromium.launch({executablePath:process.env.HEAT_TEST_CHROME || '/usr/bin/google-chrome',
         headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
     const page = await browser.newPage({viewport:{width:1500,height:1050}});
+    await observeHeat(page);
     const requests = [], releases = [];
     page.on('request',r => {if(r.url().includes('/api/')) requests.push(new URL(r.url()).pathname);});
     page.on('pageerror',e => result.errors.push(String(e)));
@@ -74,8 +76,8 @@ const template = path.relative(path.resolve(__dirname,'../dataviewer/static/data
         const index = await cards(panel).evaluateAll((nodes,key)=>nodes.findIndex(n=>n.dataset.group===key),key);
         assert(index>=0); await cards(panel).nth(index).scrollIntoViewIfNeeded(); await frames();
         const actual = await cards(panel).nth(index).evaluate(card => {
-            const o = echarts.getInstanceByDom(card.querySelector('.heat-canvas')).getOption();
-            const cells = o.series.filter(s=>['heat-values','heat-missing'].includes(s.id)).flatMap(s=>s.data);
+            const o = heatTestChart(card.querySelector('.heat-canvas')).getOption();
+            const cells = heatTestCells(card.querySelector('.heat-canvas'));
             const stats = o.series.filter(s=>['heat-statistics','heat-statistics-missing'].includes(s.id)).flatMap(s=>s.data);
             return {names:o.yAxis[0].data,times:o.xAxis[0].data,
                 values:o.yAxis[0].data.map((_,row)=>cells.filter(c=>c[5]===row).sort((a,b)=>a[4]-b[4]).map(c=>c[3])),

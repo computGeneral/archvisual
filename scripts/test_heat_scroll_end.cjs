@@ -2,6 +2,7 @@
  * node scripts/test_heat_scroll_end.cjs URL OUTPUT
  */
 'use strict';
+const {observeHeat} = require('./heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -24,6 +25,7 @@ function fixture(count) {
     const browser = await chromium.launch({ executablePath: process.env.HEAT_TEST_CHROME || '/usr/bin/google-chrome',
         headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
+    await observeHeat(page);
     page.on('pageerror', e => result.errors.push(String(e)));
     const cards = panel => page.locator(`.heat-host[data-panel="${panel}"] .heat-map`);
     const frames = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -38,10 +40,10 @@ function fixture(count) {
     async function snapshot(label, panel = 2) {
         await frames();
         const maps = await cards(panel).evaluateAll(cards => cards.map(card => {
-            const v = card.querySelector('.heat-viewport'), chart = echarts.getInstanceByDom(card.querySelector('.heat-canvas'));
+            const v = card.querySelector('.heat-viewport'), chart = heatTestChart(card.querySelector('.heat-canvas'));
             if (!chart) return null;
             const o = chart.getOption(), labels = o.xAxis[0].data.map(Number), names = o.yAxis[0].data;
-            const cells = o.series.filter(s => s.id === 'heat-values' || s.id === 'heat-missing').flatMap(s => s.data);
+            const cells = heatTestCells(card.querySelector('.heat-canvas'));
             for (const [x, y, , raw, c] of cells) {
                 if (raw !== Number(names[y].slice(1)) * 10000 + c || labels[x] !== c) throw Error('Sample value/order changed');
             }
@@ -76,7 +78,7 @@ function fixture(count) {
     }
     async function wheel(delta, modifier = 'Shift', panel = 2) {
         const p = await cards(panel).first().evaluate(card => {
-            const dom = card.querySelector('.heat-canvas'), o = echarts.getInstanceByDom(dom).getOption(), r = dom.getBoundingClientRect();
+            const dom = card.querySelector('.heat-canvas'), o = heatTestChart(dom).getOption(), r = dom.getBoundingClientRect();
             return { x: r.left + o.grid[0].left + 10, y: r.top + o.grid[0].top + 8 };
         });
         await page.mouse.move(p.x, p.y); await page.keyboard.down(modifier);
@@ -147,7 +149,7 @@ function fixture(count) {
         await page.evaluate(() => {
             window.endUpdates = 0;
             document.querySelectorAll('.heat-canvas').forEach(el => {
-                const c = echarts.getInstanceByDom(el); if (!c) return;
+                const c = heatTestChart(el); if (!c) return;
                 const original = c.setOption; c.setOption = function (...args) { ++endUpdates; return original.apply(this, args); };
             });
         });

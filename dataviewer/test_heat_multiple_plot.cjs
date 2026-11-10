@@ -3,6 +3,7 @@
  * Uses the production H5 query/template paths and actual Plot button clicks.
  */
 'use strict';
+const {observeHeat} = require('../scripts/heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,6 +18,7 @@ const templateName = path.relative(path.resolve(__dirname, 'static/data'), path.
     const browser = await chromium.launch({ executablePath: process.env.HEAT_TEST_CHROME || '/usr/bin/google-chrome',
         headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
+    await observeHeat(page);
     const errors = [], checks = [];
     const releases = [];
     page.on('pageerror', error => errors.push(error.stack || error.message));
@@ -61,10 +63,10 @@ const templateName = path.relative(path.resolve(__dirname, 'static/data'), path.
         return page.evaluate(panel => {
             const expected = multiExpected[panel], selection = metricHeat.selection(panel);
             return Array.from(document.querySelectorAll(`.heat-host[data-panel="${panel}"] .heat-map`)).map(card => {
-                const key = card.dataset.group, chart = echarts.getInstanceByDom(card.querySelector('.heat-canvas'));
+                const key = card.dataset.group, chart = heatTestChart(card.querySelector('.heat-canvas'));
                 const base = { key, names: selection[key] && selection[key].Sig, color: card.querySelector('[name="heatColor"]').value };
                 if (!chart || !chart.getOption().series) return base;
-                const o = chart.getOption(), cells = o.series.filter(s => s.id === 'heat-values' || s.id === 'heat-missing').flatMap(s => s.data);
+                const o = chart.getOption(), cells = heatTestCells(card.querySelector('.heat-canvas'));
                 const names = o.yAxis[0].data, labels = o.xAxis[0].data;
                 const stats = o.series.filter(s => s.id === 'heat-statistics' || s.id === 'heat-statistics-missing').flatMap(s => s.data);
                 if (stats.length !== names.length * 3 || o.grid[1].width !== 48 || o.grid[1].height !== o.grid[0].height ||
@@ -100,7 +102,7 @@ const templateName = path.relative(path.resolve(__dirname, 'static/data'), path.
     async function point(panel, index, column = 0, row = 0) {
         await cards(panel).nth(index).scrollIntoViewIfNeeded(); await frames();
         return cards(panel).nth(index).evaluate((card, { column, row }) => {
-            const canvas = card.querySelector('.heat-canvas'), chart = echarts.getInstanceByDom(canvas), rect = canvas.getBoundingClientRect();
+            const canvas = card.querySelector('.heat-canvas'), chart = heatTestChart(canvas), rect = canvas.getBoundingClientRect();
             const xy = chart.convertToPixel({ seriesIndex: 0 }, [column, row]);
             return { x: rect.left + xy[0], y: rect.top + xy[1] };
         }, { column, row });
@@ -190,7 +192,7 @@ const templateName = path.relative(path.resolve(__dirname, 'static/data'), path.
             const init = echarts.init;
             echarts.init = function (...args) {
                 const chart = init.apply(this, args);
-                if (args[0].classList.contains('heat-canvas')) {
+                if (args[0].classList.contains('heat-axes')) {
                     chart.on('rendered', () => multiCounts.renders++);
                     const resize = chart.resize;
                     chart.resize = function (...args) { multiCounts.resizes++; return resize.apply(this, args); };

@@ -3,6 +3,7 @@
  * HEAT_TEST_FIXTURE may select a larger H5; the real example is the default.
  */
 'use strict';
+const {observeHeat} = require('../scripts/heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,6 +19,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         ignoreDefaultArgs: ['--hide-scrollbars'], args: ['--no-sandbox', '--disable-dev-shm-usage']
     });
     const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+    await observeHeat(page);
     const errors = [], checks = [], measurements = [];
     page.on('pageerror', error => errors.push(error.stack || error.message));
     const host = panel => `.heat-host[data-panel="${panel}"]`;
@@ -46,11 +48,15 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         }, panel);
     }
     async function measure(panel = 1) {
+        // The value indicator intentionally extends past the static legend.
+        // Compare layout after ending hover, not its transient indicator bounds.
+        await page.mouse.move(10, 10);
+        await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
         return page.evaluate(panel => {
             const host = document.querySelector(`.heat-host[data-panel="${panel}"]`);
-            const chart = echarts.getInstanceByDom(host.querySelector('.heat-canvas'));
+            const chart = heatTestChart(host.querySelector('.heat-canvas'));
             const opt = chart.getOption(), viewport = host.querySelector('.heat-viewport');
-            const cells = opt.series.filter(s => s.id === 'heat-values' || s.id === 'heat-missing').flatMap(s => s.data), expected = scaleExpected[panel];
+            const cells = heatTestCells(host.querySelector('.heat-canvas')), expected = scaleExpected[panel];
             const names = opt.yAxis[0].data, labels = opt.xAxis[0].data;
             if (cells.length !== names.length * labels.length ||
                 new Set(cells.map(c => c[4] + ':' + c[5])).size !== cells.length) {
@@ -86,6 +92,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
                 throw new Error('Canvas must remain at the viewport origin while panning');
             }
             return { columnWidth: grid.width / labels.length, rowHeight: grid.height / names.length,
+                plotWidth: chart.getWidth() - grid.left - (20 + 8 + 3 * 16),
                 first: Math.min(...cells.map(c => c[4])), last: Math.max(...cells.map(c => c[4])),
                 firstRow: Math.min(...cells.map(c => c[5])), count: cells.length,
                 visibleRows: names.length, lastRow: Math.max(...cells.map(c => c[5])),
@@ -133,7 +140,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         const browserDpr = await page.evaluate(() => devicePixelRatio);
         await page.evaluate(() => {
             const host = document.querySelector('.heat-host[data-panel="1"]');
-            echarts.getInstanceByDom(host.querySelector('.heat-canvas')).on('rendered', () => {
+            heatTestChart(host.querySelector('.heat-canvas')).on('rendered', () => {
                 window.scaleRenders = (window.scaleRenders || 0) + 1;
             });
             host.querySelector('.heat-viewport').scrollLeft = 500;
@@ -155,11 +162,11 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         await idle('no idle redraw at 1 px/sample');
         const pixel = await page.evaluate(() => {
             const element = document.querySelector('.heat-host[data-panel="1"] .heat-canvas');
-            const chart = echarts.getInstanceByDom(element), canvas = element.querySelector('canvas');
+            const chart = heatTestChart(element), canvas = element.querySelector('.heat-samples');
             const point = chart.convertToPixel({ seriesIndex: 0 }, [0, 0]);
-            const ratio = canvas.width / chart.getWidth();
-            return Array.from(canvas.getContext('2d').getImageData(Math.floor(point[0] * ratio),
-                Math.floor(point[1] * ratio), 1, 1).data);
+            const ratio = devicePixelRatio;
+            return Array.from(canvas.getContext('2d').getImageData(Math.floor((point[0] - parseFloat(canvas.style.left)) * ratio),
+                Math.floor((point[1] - parseFloat(canvas.style.top)) * ratio), 1, 1).data);
         });
         assert.equal(pixel[3], 255, 'a 1 px cell must have a visible fill');
         await page.screenshot({ path: path.join(output, 'heat-scale-1px.png') });
@@ -200,7 +207,7 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         checks.push('split panels keep independent horizontal scales and scroll positions');
         await page.locator(host(2) + ' [name="heatColor"]').selectOption('row');
         await page.waitForFunction(() => {
-            const chart = echarts.getInstanceByDom(document.querySelector('.heat-host[data-panel="2"] .heat-canvas'));
+            const chart = heatTestChart(document.querySelector('.heat-host[data-panel="2"] .heat-canvas'));
             const scale = chart.getOption().visualMap[0];
             return scale.min === 0 && scale.max === 1;
         });
@@ -218,16 +225,15 @@ const output = process.env.HEAT_TEST_OUTPUT || path.resolve(__dirname, '../__out
         await page.locator('#zoom_end').fill(await page.evaluate(() => String(scaleExpected[2].times[17])));
         await page.evaluate(() => metricHeat.zoomFromInputs(2));
         await page.waitForFunction(() => {
-            const chart = echarts.getInstanceByDom(document.querySelector('.heat-host[data-panel="2"] .heat-canvas'));
+            const chart = heatTestChart(document.querySelector('.heat-host[data-panel="2"] .heat-canvas'));
             return chart.getOption().xAxis[0].data[0] === String(scaleExpected[2].times[3]);
         });
         m = await measure(2); assert.equal(m.first, 3); assert.equal(m.last, 17);
         assert.equal(m.count, m.visibleRows * 15);
-        // Multiplying the same width by a different category count, then
-        // dividing it back, can differ by one floating-point ULP. This bound
-        // applies only to CSS geometry; all raw samples above remain exact.
-        assert(Math.abs(m.columnWidth - savedWidth) < 1e-9, 'range selection must preserve CSS cell width');
-        checks.push('Start/End retains 15 individual samples with no aggregation');
+        // The approved fit floor also applies after narrowing the sample range.
+        const rangeWidth = Math.max(savedWidth, Math.min(16, Math.max(1, m.plotWidth / 15)));
+        assert(Math.abs(m.columnWidth - rangeWidth) < 1e-9, 'range selection reapplies the viewport fit floor');
+        checks.push('Start/End retains 15 individual samples with no aggregation and reapplies the fit floor');
         await idle('no idle redraw after wheel zoom and range changes');
         assert.deepEqual(errors, []);
         await page.screenshot({ path: path.join(output, 'heat-scale.png') });

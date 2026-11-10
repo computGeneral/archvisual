@@ -290,12 +290,30 @@ columns=metric names) and optional `/config`. Perfmodel's generated
 `*_perf_metric_*.h5` files use this structure. The x-axis displays sample labels;
 Heat does not infer a physical time unit from the file name.
 
+Heat draws visible sample cells directly in a transparent Canvas from the original
+sample arrays. ECharts still draws the axes, color legend and min/avg/max columns.
+This avoids allocating an ECharts data/rectangle object for every visible sample;
+it does not aggregate samples, change numeric precision or alter H5 loading.
+Hover, legend highlighting and selection use the same row/sample coordinates.
+The sample bitmap follows the device pixel ratio and is released on Clear/Delete
+or suspended when switching to Line. Dense plots retain the original ECharts
+hover-layer blending with a temporary transparent highlight Canvas. Sample hover
+allocates only a small patch; legend hover can use a full visible-grid highlight
+bitmap, which is released when the highlight ends.
+
+The legend adapter in `metric_heat.js` uses the bundled ECharts 5.5.0 view's
+indicator, hover range and hover-layer threshold. Revalidate this adapter when
+upgrading ECharts.
+`metric_heat_canvas.js` owns sample drawing, hit testing and local hover updates;
+it does not own queries or compute full-file statistics.
+
 Validation from the ArchVisual repository root:
 
 ```bash
 python3 -B archvisual.py check
 python3 -B archvisual.py test dataviewer --noinput
 node dataviewer/test_metric_heat.cjs
+node --test scripts/test_heat_canvas.cjs
 ```
 
 Heat viewport stability is covered by an additional browser regression. With
@@ -315,7 +333,9 @@ feedback, fractional split dimensions, scrolling and tooltip stability.
 a report directory under the repository output tree. The scale regression
 checks Ctrl+wheel zoom limits, ordinary scrolling, fixed row height, exact raw cells, pointer anchoring,
 last-sample access and independent split-panel scales. Set `HEAT_TEST_FIXTURE`
-to exercise another H5 file through the same server load/query flow. The multiple
+to a sufficiently long H5 (for example 10,000 samples) for the explicit 1px
+limit check; `scripts/test_heat_zoom_fit.cjs` covers shorter datasets and the
+viewport fit floor. The multiple
 Plot regression covers real Plot clicks, linked horizontal views, independent
 colors, templates, out-of-order requests, Clear/Delete, reload and multi-map
 layout stability. It also verifies compact controls and sidebar instructions,
@@ -325,6 +345,21 @@ keyboard resizing, hidden sidebar state and real edge-drag reopening (including
 `HEAT_TEST_RELOAD_FIXTURE` optionally selects a different H5 for its reload check. Template test artifacts are written under the output tree.
 The statistics regression uses the locally selected Python to generate H5 fixtures and
 independent math.fsum reference means under its output directory.
+
+Canvas pixel and lifecycle checks use a dedicated server and explicit output
+paths (Playwright and Chrome must already be installed):
+
+```bash
+node scripts/test_heat_canvas_browser.cjs http://127.0.0.1:8000 /path/to/output/heat-pixels
+node scripts/test_heat_canvas_lifecycle.cjs http://127.0.0.1:8000 /path/to/output/heat-lifecycle
+```
+
+The pixel test generates a small metric fixture with 10,000 samples and compares
+all sample pixels, including outer strokes, against the bundled ECharts heatmap
+at DPR 1, 1.25, 1.5 and 2. It includes missing values, manual/per-metric color scales,
+hover and legend highlighting. The lifecycle test covers live DPR changes,
+Line/Heat transitions and repeated Plot/Clear/Delete. These tests do not establish
+long-term browser memory use or performance on every graphics device.
 
 ## Metric / Trace keyboard synchronization
 

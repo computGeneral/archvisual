@@ -2,6 +2,7 @@
  * METRIC_RELOAD_TEST_OUTPUT selects fixtures, screenshots and result.json.
  */
 'use strict';
+const {observeHeat} = require('./heat_test_support.cjs');
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -28,6 +29,7 @@ function h5(name, offset = 0, count = 400, missing = [], period = 100) {
     const browser = await chromium.launch({executablePath:process.env.METRIC_RELOAD_CHROME || '/usr/bin/google-chrome',
         headless:true, ignoreDefaultArgs:['--hide-scrollbars'], args:['--no-sandbox', '--disable-dev-shm-usage']});
     const page = await browser.newPage({viewport:{width:1500, height:850}});
+    await observeHeat(page);
     page.on('pageerror', error => errors.push(String(error)));
     page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
     const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -71,14 +73,15 @@ function h5(name, offset = 0, count = 400, missing = [], period = 100) {
             return {groups:metricHeat.selection(panel), top:host.scrollTop, left:host.scrollLeft,
                 maps:Array.from(host.querySelectorAll('.heat-map')).map(card => {
                     const viewport = card.querySelector('.heat-viewport');
-                    const chart = echarts.getInstanceByDom(card.querySelector('.heat-canvas'));
+                    const chart = heatTestChart(card.querySelector('.heat-canvas'));
                     const o = chart && chart.getOption();
+                    const cells = o && heatTestCells(card.querySelector('.heat-canvas'));
                     return {key:card.dataset.group, top:viewport.scrollTop, left:viewport.scrollLeft,
                         sidebar:card.querySelector('.heat-sidebar-resizer').getAttribute('aria-valuenow'),
                         colors:Array.from(card.querySelectorAll('select,input')).map(el => el.value),
                         status:card.querySelector('.heat-status').textContent,
-                        values:o && o.series[0].data, statistics:o && o.series[2].data,
-                        missing:o && o.series[1].data, names:o && o.yAxis[0].data, labels:o && o.xAxis[0].data};
+                        values:cells && cells.filter(v => v[3] !== null), statistics:o && o.series[2].data,
+                        missing:cells && cells.filter(v => v[3] === null), names:o && o.yAxis[0].data, labels:o && o.xAxis[0].data};
                 })};
         }, panel);
     }
@@ -177,7 +180,7 @@ function h5(name, offset = 0, count = 400, missing = [], period = 100) {
         await cards(1).first().scrollIntoViewIfNeeded(); await frames();
         await page.evaluate(() => {
             const card=document.querySelector('.heat-map'), canvas=card.querySelector('.heat-canvas');
-            const grid=echarts.getInstanceByDom(canvas).getOption().grid[0], rect=canvas.getBoundingClientRect();
+            const grid=heatTestChart(canvas).getOption().grid[0], rect=canvas.getBoundingClientRect();
             card.querySelector('.heat-viewport').dispatchEvent(new WheelEvent('wheel', {
                 bubbles:true, cancelable:true, ctrlKey:true, deltaY:90,
                 clientX:rect.left+grid.left+20, clientY:rect.top+grid.top+8}));

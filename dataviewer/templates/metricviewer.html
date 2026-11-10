@@ -7,7 +7,8 @@
     <script type="text/javascript" src="/static/js/echarts.min.js"></script>
     <script src="/static/js/jquery-3.4.0.js"></script>
     <script src="/static/js/metric_samples.js?v=1"></script>
-    <script src="/static/js/metric_heat.js?v=18"></script>
+    <script src="/static/js/metric_heat_canvas.js?v=1"></script>
+    <script src="/static/js/metric_heat.js?v=19"></script>
     <script src="/static/js/metric_search_resize.js?v=1"></script>
     <script src="/static/js/metric_search.js?v=1"></script>
     <link rel="icon" href="/static/image/metricviewer.ico?v=6" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
@@ -186,6 +187,13 @@
             scrollbar-gutter:stable; contain:size layout; position:relative; background:transparent; }
         .heat-spacer { position:relative; min-width:100%; min-height:100%; }
         .heat-canvas { position:sticky; left:0; top:0; width:600px; height:320px; overflow:hidden; }
+
+        .heat-axes { position:absolute; inset:0; }
+        .heat-samples, .heat-sample-highlight { position:absolute; pointer-events:none; z-index:1; }
+        .heat-sample-tooltip { position:absolute; display:none; pointer-events:none; z-index:9999999;
+            left:0; top:0; white-space:nowrap; will-change:transform; background:#fff;
+            border:1px solid; border-radius:4px; color:#666; font:14px/21px sans-serif; padding:10px;
+            box-shadow:1px 2px 10px rgba(0,0,0,.2); }
 
         .metric-mode-select { position:relative; }
         .metric-mode-select select { appearance:none; -webkit-appearance:none;
