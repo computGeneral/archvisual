@@ -19,6 +19,7 @@ import io
 import numpy as np
 import pandas as pd
 import tempfile
+from contextlib import ExitStack, contextmanager
 
 from dataviewer import gl
 from django.conf import settings
@@ -32,6 +33,23 @@ def _temporary_root():
     path = settings.ARCHVISUAL_TEMP_ROOT
     os.makedirs(path, exist_ok=True)
     return path
+
+
+@contextmanager
+def _uploaded_h5_path(uploaded):
+    """Borrow Django's disk upload, or own a short-lived copy of a memory upload."""
+    temporary_path = getattr(uploaded, 'temporary_file_path', None)
+    if callable(temporary_path):
+        # The request owns this file and closes it after the response. Read the
+        # dataset eagerly before then; never move, close or unlink this path.
+        yield temporary_path()
+        return
+    with tempfile.TemporaryDirectory(dir=_temporary_root()) as directory:
+        path = os.path.join(directory, 'upload.h5')
+        with open(path, 'wb') as target:
+            for chunk in uploaded.chunks():
+                target.write(chunk)
+        yield path
 
 
 def page_admin(request):
@@ -89,9 +107,10 @@ def api_show_upload(request):
     if not (file.name.endswith('.h5') or file.name.endswith('.csv')):
         return HttpResponse("File must be either HDF5(.h5) or CSV(.csv) format", status=400)
     try:
-        with tempfile.NamedTemporaryFile(
-                delete=False, suffix='.h5', dir=_temporary_root()) as tmp_file:
+        with ExitStack() as files:
             if file.name.endswith('.csv'):
+                tmp_file = files.enter_context(tempfile.NamedTemporaryFile(
+                    delete=False, suffix='.h5', dir=_temporary_root()))
                 try:
                     df, config = read_metric_csv(file)
                     with pd.HDFStore(tmp_file.name, mode='w', complevel=4, complib="blosc") as store:
@@ -99,31 +118,25 @@ def api_show_upload(request):
                         store.put('config', pd.Series({'ClockGHz': 1.8, **config}))
                 except Exception as e:
                     return HttpResponse(f"Error processing CSV file: {str(e)}", status=500)
+                hdf_path = tmp_file.name
             else: # input is hdf5
                 try:
-                    for chunk in file.chunks():
-                        tmp_file.write(chunk)
-                    tmp_file.close()
+                    hdf_path = files.enter_context(_uploaded_h5_path(file))
                 except Exception as e:
                     return HttpResponse(f"Error saving HDF5 file: {str(e)}", status=500)
 
             try:
-                with pd.HDFStore(tmp_file.name, mode='r') as store:
+                with pd.HDFStore(hdf_path, mode='r') as store:
                     now_data = store['data']
                     try:
                         now_config = store['config']
                     except KeyError:
                         now_config = pd.DataFrame()
-                HttpResponse("File Process successfully", status=200)
 
             except Exception as e:
                 return HttpResponse(f"Error reading HDF5 file: {str(e)}", status=500)
     except Exception as e:
         return HttpResponse(f"Error reading file: {str(e)}", status=500)
-
-    #finally:
-    #    if 'tmp_file' in locals() and os.path.exists(tmp_file.name):
-    #        os.unlink(tmp_file.name)
 
     return _loaded_response(file.name, now_data, now_config, secondary,
                             {'kind': 'local', 'name': file.name}, request.POST.get('reloadQuery'))

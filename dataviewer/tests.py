@@ -17,14 +17,15 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 from django.conf import settings
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase
+from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploadedFile
+from django.test import RequestFactory, SimpleTestCase
 
-from dataviewer import gl
+from dataviewer import gl, views
 
 
 class HeatQueryTests(SimpleTestCase):
@@ -261,3 +262,160 @@ class HeatQueryTests(SimpleTestCase):
                         response = self.post('/api/show/server_load', {'path': str(path)})
                     self.assertEqual(response.status_code, 200)
                     self.assertNotIn('SamplePeriod', response.json()['data']['config'])
+
+
+class H5UploadTests(SimpleTestCase):
+    """Exercise both real Django upload handlers and temporary-file ownership."""
+
+    def setUp(self):
+        root = Path(settings.ARCHVISUAL_TEMP_ROOT)
+        root.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=root)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.app_temp = self.root / 'app'
+        self.multipart = self.root / 'multipart'
+        self.app_temp.mkdir()
+        self.multipart.mkdir()
+        self.settings_override = self.settings(
+            ARCHVISUAL_TEMP_ROOT=str(self.app_temp), FILE_UPLOAD_TEMP_DIR=str(self.multipart))
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        gl.clear()
+        gl.clear(secondary=True)
+        self.addCleanup(gl.clear)
+        self.addCleanup(lambda: gl.clear(secondary=True))
+        self.frame = pd.DataFrame({'port': [0.0, 7.5, -2.25], 'other': [3.0, 2.0, 1.0]},
+                                  index=['last', 'first', 'middle'])
+        self.config = pd.Series({'ClockGHz': 1.6, 'SamplePeriod': 100})
+
+    def h5_bytes(self, *, frame=None, config=True, data=True):
+        path = self.root / 'source.h5'
+        with pd.HDFStore(path, mode='w') as store:
+            if data:
+                store.put('data', self.frame if frame is None else frame)
+            if config:
+                store.put('config', self.config)
+        return path.read_bytes()
+
+    def request(self, content, *, disk, **fields):
+        # Keep the request open to verify the view borrows Django's path without
+        # deleting it; request.close() remains the owner's cleanup operation.
+        with self.settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0 if disk else 10 * 1024 * 1024):
+            request = RequestFactory().post('/api/show/upload', {
+                'file': SimpleUploadedFile('metrics.h5', content), **fields})
+            uploaded = request.FILES['file']
+        self.assertEqual(isinstance(uploaded, TemporaryUploadedFile), disk)
+        self.addCleanup(request.close)
+        return request, uploaded
+
+    def assert_empty_temp(self):
+        self.assertEqual(list(self.app_temp.iterdir()), [])
+        self.assertEqual(list(self.multipart.iterdir()), [])
+
+    def test_disk_upload_borrows_path_without_copy_and_request_owns_cleanup(self):
+        request, uploaded = self.request(self.h5_bytes(), disk=True)
+        path = Path(uploaded.temporary_file_path())
+        with mock.patch.object(uploaded, 'chunks', side_effect=AssertionError('unexpected copy')), \
+                mock.patch.object(views, '_temporary_root', side_effect=AssertionError('unexpected app temp')):
+            response = views.api_show_upload(request)
+        self.assertEqual(response.status_code, 200, response.content)
+        meta = json.loads(response.content)['data']
+        self.assertEqual(meta['times'], self.frame.index.tolist())
+        self.assertEqual(meta['signal'], self.frame.columns.tolist())
+        self.assertEqual(meta['config'], self.config.to_dict())
+        self.assertEqual(meta['source'], {'kind': 'local', 'name': 'metrics.h5'})
+        pd.testing.assert_frame_equal(gl.get_all()['data'], self.frame)
+        self.assertTrue(path.exists())
+        self.assertFalse(uploaded.closed)
+        request.close()
+        self.assertFalse(path.exists())
+        self.assert_empty_temp()
+
+    def test_memory_upload_cleans_copy_and_loaded_values_survive_request_close(self):
+        request, _ = self.request(self.h5_bytes(), disk=False)
+        response = views.api_show_upload(request)
+        self.assertEqual(response.status_code, 200, response.content)
+        request.close()
+        self.assert_empty_temp()
+        pd.testing.assert_frame_equal(gl.get_all()['data'], self.frame)
+        result = self.client.post('/api/show/query', json.dumps({
+            'mode': 'heat', 'query': {'g': {'Sig': ['other', 'port']}}}),
+            content_type='application/json').json()
+        self.assertEqual(result['data']['g']['Sig'], {'other': [3, 2, 1], 'port': [0, 7.5, -2.25]})
+
+    def test_real_multipart_response_closes_disk_upload_and_preserves_secondary(self):
+        old = pd.DataFrame({'port': [99.0]})
+        gl.set_value('data', old)
+        with self.settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0):
+            response = self.client.post('/api/show/upload', {
+                'file': SimpleUploadedFile('metrics.h5', self.h5_bytes()), 'secondary': 'true',
+                'reloadQuery': json.dumps({'g': {'Sig': ['port', 'gone']}})})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.wsgi_request.FILES['file'].closed)
+        self.assertIs(gl.get_all()['data'], old)
+        pd.testing.assert_frame_equal(gl.get_all(secondary=True)['data'], self.frame)
+        self.assertEqual(response.json()['reload']['g']['Sig'],
+                         {'port': [0, 7.5, -2.25], 'gone': [None, None, None]})
+        self.assertEqual(response.json()['missing'], ['gone'])
+        self.assert_empty_temp()
+
+    def test_failed_upload_or_reload_keeps_both_datasets_and_cleans_owned_files(self):
+        cases = [
+            (b'not HDF5', None, 500),
+            (self.h5_bytes(data=False), None, 500),
+            (self.h5_bytes(), '{', 400),
+            (self.h5_bytes(frame=pd.DataFrame({'port': ['invalid']})),
+             json.dumps({'g': {'Sig': ['port']}}), 400),
+        ]
+        for disk in [False, True]:
+            for content, query, status in cases:
+                with self.subTest(disk=disk, query=query, status=status):
+                    previous = []
+                    for panel in [False, True]:
+                        old = {'data': pd.DataFrame({'port': [99.0]}), 'title': 'previous.h5',
+                               'config': pd.Series({'SamplePeriod': 7})}
+                        previous.append(old)
+                        for key, value in old.items():
+                            gl.set_value(key, value, secondary=panel)
+                    fields = {'secondary': 'true'}
+                    if query is not None:
+                        fields['reloadQuery'] = query
+                    request, uploaded = self.request(content, disk=disk, **fields)
+                    response = views.api_show_upload(request)
+                    self.assertEqual(response.status_code, status, response.content)
+                    for panel in [False, True]:
+                        for key, value in previous[panel].items():
+                            self.assertIs(gl.get_all(secondary=panel)[key], value)
+                    if disk:
+                        self.assertTrue(Path(uploaded.temporary_file_path()).exists())
+                    request.close()
+                    self.assert_empty_temp()
+
+    def test_partial_memory_copy_failure_cleans_temporary_file(self):
+        request, uploaded = self.request(b'partial data', disk=False)
+        old = pd.DataFrame({'port': [99.0]})
+        gl.set_value('data', old)
+
+        def broken_chunks():
+            yield b'partial'
+            raise OSError('copy interrupted')
+
+        with mock.patch.object(uploaded, 'chunks', broken_chunks):
+            response = views.api_show_upload(request)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b'copy interrupted', response.content)
+        self.assertIs(gl.get_all()['data'], old)
+        request.close()
+        self.assert_empty_temp()
+
+    def test_missing_config_and_repeated_uploads_leave_no_temporary_files(self):
+        content = self.h5_bytes(config=False)
+        for disk in [False, True, True, False]:
+            request, _ = self.request(content, disk=disk)
+            response = views.api_show_upload(request)
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(json.loads(response.content)['data']['config'], {})
+            request.close()
+            self.assert_empty_temp()
+            pd.testing.assert_frame_equal(gl.get_all()['data'], self.frame)
