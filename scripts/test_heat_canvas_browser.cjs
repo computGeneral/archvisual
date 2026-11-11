@@ -60,6 +60,17 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
                 const m = await page.evaluate(() => {
                     const host = document.querySelector('.heat-host[data-panel="1"] .heat-canvas'), f = heatTestFrame(host);
                     const sample = host.querySelector('.heat-samples'), ref = pixelReference.chart;
+                    const chart = heatTestChart(host), grid = chart.getOption().grid;
+                    const axis = chart.getViewOfComponentModel(chart.getModel().getComponent('xAxis', 1));
+                    const statisticHeaders = [];
+                    axis.group.traverse(element => {
+                        if (element.type !== 'text' || element.ignore || element.invisible ||
+                            !['min','avg','max'].includes(element.style.text)) return;
+                        const rect = element.getBoundingRect().clone(), transform = element.getComputedTransform();
+                        if (transform) rect.applyTransform(transform);
+                        statisticHeaders.push({text:element.style.text, x:rect.x, y:rect.y, width:rect.width, height:rect.height});
+                    });
+                    statisticHeaders.sort((a, b) => a.x - b.x);
                     ref.getZr().flush();
                     const a = document.createElement('canvas'); a.width = Math.round(ref.getWidth() * devicePixelRatio); a.height = Math.round(ref.getHeight() * devicePixelRatio);
                     const ctx = a.getContext('2d', {willReadFrequently: true});
@@ -76,9 +87,25 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
                         ++mismatchedChannels; maxDifference = Math.max(maxDifference, Math.abs(aa[i] - bb[i]));
                         if (!first) first = {x: Math.floor(i / 4) % a.width, y: Math.floor(i / 4 / a.width), channel: i % 4, actual: aa[i], expected: bb[i]};
                     }
-                    return {mismatchedChannels, maxDifference, first, columnWidth: f.columnWidth, cells: f.x.length * f.y.length,
+                    return {mismatchedChannels, maxDifference, first, columnWidth: f.columnWidth, rowHeight: f.bandHeight,
+                        statisticsWidth: grid[1].width, statisticsRowHeight: grid[1].height / f.y.length,
+                        statisticHeaders, statisticsLeft: grid[1].left, statisticsTop: grid[1].top, cells: f.x.length * f.y.length,
                         bitmapBytes: sample.width * sample.height * 4, totalChannels: aa.length};
                 });
+                assert.equal(m.rowHeight, 8, 'Sample rows are exactly 8 CSS px');
+                assert.equal(m.statisticsWidth, 24, 'Three 8px statistic columns');
+                assert.equal(m.statisticsRowHeight, 8, 'Statistic rows are exactly 8 CSS px');
+                assert(m.columnWidth >= 1 && m.columnWidth <= 8, 'Sample columns stay within the fixed 1–8px limits');
+                assert.deepEqual(m.statisticHeaders.map(h => h.text), ['min','avg','max'], 'All three statistic titles are visibly rendered');
+                for (let i = 0; i < m.statisticHeaders.length; ++i) {
+                    const h = m.statisticHeaders[i], center = m.statisticsLeft + i * 8 + 4;
+                    assert(Math.abs(h.x + h.width / 2 - center) < 1e-7, 'Statistic title is centered on its 8px column');
+                    assert(h.y + h.height <= m.statisticsTop + 1e-7, 'Statistic title stays above its grid');
+                    if (i) {
+                        const previous = m.statisticHeaders[i - 1];
+                        assert(previous.x + previous.width <= h.x + 1e-7, 'Rendered statistic titles must not overlap horizontally');
+                    }
+                }
                 result.pixels.push({dpr, label, ...m});
                 fs.writeFileSync(path.join(output, 'progress.json'), JSON.stringify(result, null, 2));
                 assert.equal(m.mismatchedChannels, 0, `DPR${dpr} ${label}: full sample pixels, including outer strokes`);
@@ -154,8 +181,12 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
                 result.pixels.push({dpr, label, ...m});
                 assert.equal(m.mismatchedChannels, 0, `${dpr} ${label}: statistic highlight pixels must match`);
             }
-            await snapshot('global-16');
-            for (const [x, y, text] of [[1, 0, 'Raw value: 1'], [0, 1, 'Raw value: 0'], [0, 3, 'No valid data']]) {
+            const columnWidth = () => card.evaluate(card => heatTestFrame(card.querySelector('.heat-canvas')).columnWidth);
+            assert.equal(await columnWidth(), 8, 'Initial sample width is 8 CSS px');
+            await wheel(-5000); assert.equal(await columnWidth(), 8, 'Zoom-in is capped at 8 CSS px');
+            await snapshot('global-8');
+            for (const [x, y, text] of [[1, 0, 'Raw value: 1'], [0, 1, 'Raw value: 0'], [0, 2, 'Raw value: 7'],
+                [0, 3, 'No valid data'], [0, 4, 'Raw value: -50'], [1, 5, 'Raw value: 1'], [1, 6, 'Raw value: 0.25']]) {
                 const p = await point(x, y); await page.mouse.move(p.x, p.y); await frames();
                 assert((await card.locator('.heat-sample-tooltip').innerText()).includes(text));
                 assert.equal(await card.evaluate(card => {
@@ -173,6 +204,15 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
                 await page.mouse.move(10, 10); await frames();
                 await page.evaluate(() => pixelReference.chart.dispatchAction({type: 'downplay'})); await frames(); await compare('hover-cleared-' + y);
             }
+            // Both sides of the 8px row must hit the same metric, while its
+            // neighbor immediately below has a distinct value/name.
+            const signedPoint = await point(0, 4);
+            for (const offset of [-3, 3]) {
+                await page.mouse.move(signedPoint.x, signedPoint.y + offset); await frames();
+                const text = await card.locator('.heat-sample-tooltip').innerText();
+                assert(text.includes('signed') && text.includes('Raw value: -50'));
+            }
+            await page.mouse.move(10, 10); await frames();
             const samplePoint = await point(1, 0);
             for (const offset of [0, .1]) {
                 await page.mouse.move(samplePoint.x + offset, samplePoint.y); await frames();
@@ -193,17 +233,17 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
             for (const [n, v] of [['heatMin', '0'], ['heatMax', '50']]) {
                 const el = card.locator(`[name="${n}"]`); await el.fill(v); await el.press('Tab'); await frames();
             }
-            await snapshot('manual-16');
-            await card.locator('[name="heatColor"]').selectOption('row'); await frames(); await snapshot('row-16');
+            await snapshot('manual-8');
+            await card.locator('[name="heatColor"]').selectOption('row'); await frames(); await snapshot('row-8');
             const normalizedPoint = await point(1, 0); await page.mouse.move(normalizedPoint.x, normalizedPoint.y); await frames();
             assert((await card.locator('.heat-sample-tooltip').innerText()).includes('Normalized: 0.0100000'));
             assert.equal(await card.evaluate(card => {
                 const chart = heatTestChart(card.querySelector('.heat-canvas')), model = chart.getModel().getComponent('visualMap');
                 return chart.getViewOfComponentModel(model)._shapes.indicatorLabel.style.text === model.formatValueText(.01);
             }), true, 'normalized sample drives the exact normalized legend value');
-            await wheel(120); await snapshot('row-fractional');
+            await wheel(120); assert((await columnWidth()) < 8 && (await columnWidth()) % 1 !== 0); await snapshot('row-fractional');
             await hoverPixels('fractional-valid', 1, 0); await hoverPixels('fractional-missing', 0, 3);
-            await wheel(5000); await snapshot('row-1');
+            await wheel(5000); assert.equal(await columnWidth(), 1); await snapshot('row-1');
             await hoverPixels('1px-valid', 1, 0); await hoverPixels('1px-missing', 0, 3);
             await legendPixels('1px-legend');
             await reference(true); await statisticPixels('statistics-normal');
@@ -223,7 +263,7 @@ execFileSync('python3', ['-B', path.join(__dirname, 'csv2hdf.py'), '-i', csv, '-
             await card.locator('.heat-viewport').evaluate(v => {v.scrollLeft = v.scrollWidth;}); await frames();
             await snapshot('row-end-1');
             assert.equal(await page.evaluate(() => heatTestFrame(document.querySelector('.heat-host[data-panel="1"] .heat-canvas')).lastCol), 10000);
-            result.checks.push(`DPR${dpr}: exact full sample pixels, original values, hover/clear, manual/row colors and last sample`);
+            result.checks.push(`DPR${dpr}: fixed 8px rows/statistic cells and 1–8px columns, exact full sample pixels, original values, every-row hit/clear, manual/row colors and last sample`);
             await page.screenshot({path: path.join(output, `dpr${dpr}.png`)}); await page.close();
         }
         assert.deepEqual(result.errors, []); result.status = 'PASS';

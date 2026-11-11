@@ -7,7 +7,7 @@
 }(typeof window === 'undefined' ? this : window, function () {
     'use strict';
     var palette = ['#f7fbff', '#c6dbef', '#6baed6', '#2171b5', '#fdae61', '#d73027'];
-    var rowHeight = 16, minColumnWidth = 1, maxColumnWidth = 16;
+    var rowHeight = 8, minColumnWidth = 1, maxColumnWidth = 8;
     var defaultAxisTop = 52, bottomSpace = 40, minMapHeight = 140, scrollbarSpace = 15;
     var statistics = ['min', 'avg', 'max'], statisticsGap = 8;
     var defaultSidebarWidth = 180, minSidebarWidth = 0, maxSidebarWidth = 400;
@@ -659,7 +659,7 @@
                     axisLabel: { interval: Math.max(0, Math.ceil(48 / s.columnWidth) - 1), rotate: 50, fontSize: 10 } },
                     { type: 'category', gridIndex: 1, data: statistics, position: 'top', show: !!names.length,
                         axisTick: { show: false }, axisLine: { show: false },
-                        axisLabel: { interval: 0, rotate: 50, fontSize: 10 } }],
+                        axisLabel: { interval: 0, rotate: 90, fontSize: 8 } }],
                 yAxis: [{ type: 'category', data: names, inverse: true,
                     axisLabel: { width: left - 20, overflow: 'truncate', fontSize: 11 },
                     axisTick: { show: false } },

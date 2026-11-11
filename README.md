@@ -246,18 +246,19 @@ Hover a cell for the full metric name, sample label and raw value.
 - **Per-metric normalized** compares each metric's trend using its full-row minimum
   and maximum. Constant rows map to 0. Raw values remain available in tooltips.
 - The three **min / avg / max** columns immediately to the right summarize
-  every sample in the loaded file for each metric. Their cells stay **16 × 16 px**
+  every sample in the loaded file for each metric. Their cells stay **8 × 8 px**
   while sample columns zoom; they track metric rows when scrolling. Hover for
-  full raw values. Statistics share the map’s color scale. **avg** is the
+  full raw values. Column titles are vertical to fit the 8 px width.
+  Statistics share the map’s color scale. **avg** is the
   arithmetic mean of valid samples, including zero; missing samples are skipped.
   An entirely missing row stays gray. Start/End and panning do not change these
   full-file statistics. Ratio metrics use the sample mean. Statistics are cached
   after data queries and refreshed when the file reloads.
 - Gray cells mean missing or nonfinite values; valid zero values use the normal
   color scale. Missing or nonnumeric metric columns produce an explicit error.
-- Cells start at **16 × 16 CSS px**, with a fixed **16 px row height** and no
+- Cells start at **8 × 8 CSS px**, with a fixed **8 px row height** and no
   Cell size setting. Use **Ctrl+wheel** over the plot to zoom horizontally
-  between **1 and 16 px per sample**, centered on the sample under the pointer.
+  between **1 and 8 px per sample**, centered on the sample under the pointer.
   Maps in the same panel share horizontal zoom, panning and Start/End so their
   samples stay aligned. Scroll vertically through the list of maps.
   Use **Shift+wheel** to pan horizontally, or use the horizontal/vertical

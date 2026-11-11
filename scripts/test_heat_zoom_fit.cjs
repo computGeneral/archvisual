@@ -58,20 +58,20 @@ function fixture(count) {
                 if (raw !== expected || labels[x] !== String(sample)) throw new Error('Raw samples or labels changed');
             }
             return { cell: o.grid[0].width / labels.length, grid: o.grid[0].width,
-                area: chart.getWidth() - o.grid[0].left - (20 + 8 + 3 * 16),
+                area: chart.getWidth() - o.grid[0].left - (20 + 8 + 3 * 8),
                 count: labels.length, first: Number(labels[0]), last: Number(labels.at(-1)),
                 cells: cells.length, row: o.grid[0].height / names.length, statistics: o.grid[1].width,
                 scroll: viewport.scrollLeft, sidebar: Number(card.querySelector('.heat-sidebar-resizer').getAttribute('aria-valuenow')) };
         }));
         result.snapshots.push({ label, panel, maps });
-        for (const m of maps.filter(m => !m.unrendered)) { close(m.row, 16); close(m.statistics, 48); }
+        for (const m of maps.filter(m => !m.unrendered)) { close(m.row, 8); close(m.statistics, 24); }
         return maps;
     }
     async function wheel(delta = 120, panel = 1, modifier = 'Control') {
         const p = await cards(panel).first().evaluate(card => {
             const dom = card.querySelector('.heat-canvas'), chart = heatTestChart(dom), o = chart.getOption();
             const rect = dom.getBoundingClientRect();
-            return { x: rect.left + o.grid[0].left + 10, y: rect.top + o.grid[0].top + 8 };
+            return { x: rect.left + o.grid[0].left + 4, y: rect.top + o.grid[0].top + 4 };
         });
         await page.mouse.move(p.x, p.y);
         if (modifier) await page.keyboard.down(modifier);
@@ -81,7 +81,7 @@ function fixture(count) {
     }
     async function zoomOut(panel = 1) { for (let i = 0; i < 12; ++i) await wheel(120, panel); }
     function fitted(maps, count, start = 0) {
-        const floor = Math.min(16, Math.max(1, Math.max(...maps.map(m => m.area)) / count));
+        const floor = Math.min(8, Math.max(1, Math.max(...maps.map(m => m.area)) / count));
         for (const m of maps) {
             close(m.cell, floor);
             if (count * floor <= m.area + 1e-9) {
@@ -103,6 +103,7 @@ function fixture(count) {
     }
     try {
         await fresh(400);
+        assert((await snapshot('initial 8px samples')).every(m => m.cell === 8));
         await cards(1).first().locator('.heat-viewport').evaluate(el => { el.scrollLeft = 500; }); await frames();
         assert((await snapshot('panned before fit'))[0].scroll > 0);
         await zoomOut(); let maps = await snapshot('400 samples at fit'); fitted(maps, 400);
@@ -116,12 +117,14 @@ function fixture(count) {
         result.checks.push('fractional cell rounding never reverses the direction of a tiny wheel step');
         await page.screenshot({ path: path.join(output, 'fit-400.png') });
         await wheel(-120); maps = await snapshot('zoom in from fit'); assert(maps.every(m => m.cell > fit));
+        await wheel(-5000); maps = await snapshot('zoom-in capped at 8px'); assert(maps.every(m => m.cell === 8));
+        await wheel(-5000); maps = await snapshot('repeated zoom-in remains 8px'); assert(maps.every(m => m.cell === 8));
         await zoomOut(); fitted(await snapshot('zoom back to fit'), 400);
-        result.checks.push('zoom-in remains available and zoom-out returns exactly to the shared floor');
+        result.checks.push('zoom-in remains available up to the strict 8px maximum and zoom-out returns exactly to the shared floor');
 
         await range(50, 61); maps = await snapshot('short range raises floor'); fitted(maps, 12, 50);
         await zoomOut(); fitted(await snapshot('short range cannot shrink'), 12, 50);
-        await range(0, 399); maps = await snapshot('range expansion preserves 16px'); assert(maps.every(m => m.cell === 16));
+        await range(0, 399); maps = await snapshot('range expansion preserves 8px'); assert(maps.every(m => m.cell === 8));
         await zoomOut(); fitted(await snapshot('range expansion permits zoom-out'), 400);
         result.checks.push('range changes raise an insufficient width, preserve a larger width, and update the zoom floor');
 
@@ -157,7 +160,7 @@ function fixture(count) {
         await page.evaluate(() => setSplitMode('single')); await frames();
         await page.evaluate(async () => { for (let i = 0; i < 9; ++i) await metricHeat.plot(['traffic'], 1); });
         await cards(1).last().scrollIntoViewIfNeeded(); await frames();
-        const last = (await snapshot('offscreen map after scrolling')).at(-1); close(last.cell, Math.min(16, Math.max(1, last.area / 400)));
+        const last = (await snapshot('offscreen map after scrolling')).at(-1); close(last.cell, Math.min(8, Math.max(1, last.area / 400)));
         assert.equal(last.first, 0); assert.equal(last.last, 399);
         result.checks.push('new and previously offscreen maps inherit the same fit width and full sample range');
         await page.locator('.heat-host[data-panel="1"]').evaluate(el => { el.scrollTop = 0; }); await frames();
@@ -168,9 +171,9 @@ function fixture(count) {
         result.checks.push('ordinary wheel scrolls the map list without zooming');
 
         for (const count of [12, 1]) {
-            await fresh(count); await zoomOut(); fitted(await snapshot(`${count} samples retain 16px`), count);
+            await fresh(count); await zoomOut(); fitted(await snapshot(`${count} samples retain 8px`), count);
         }
-        result.checks.push('short datasets, including one sample, remain at the 16px maximum');
+        result.checks.push('short datasets, including one sample, remain at the 8px maximum');
         await fresh(2000); await zoomOut(); maps = await snapshot('large dataset at 1px'); fitted(maps, 2000);
         assert(maps.every(m => m.cell === 1 && m.count < 2000));
         await wheel(120, 1, 'Shift'); maps = await snapshot('pan large dataset');
