@@ -36,7 +36,12 @@ function fixture(count) {
         await page.locator('#metricMode').selectOption('heat');
         await page.evaluate(panel => ClearAll(panel), panel); await frames();
     }
-    async function plot(names, panel = 2) { await page.evaluate(({ names, panel }) => metricHeat.plot(names, panel), { names, panel }); await frames(); }
+    async function plot(names, panel = 2) {
+        await page.evaluate(({ names, panel }) => metricHeat.plot(names, panel), { names, panel });
+        const size = cards(panel).first().locator('[name="heatCellSize"]');
+        if (await size.inputValue() !== '8') await size.selectOption('8');
+        await frames();
+    }
     async function snapshot(label, panel = 2) {
         await frames();
         const maps = await cards(panel).evaluateAll(cards => cards.map(card => {

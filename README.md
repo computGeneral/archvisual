@@ -246,9 +246,10 @@ Hover a cell for the full metric name, sample label and raw value.
 - **Per-metric normalized** compares each metric's trend using its full-row minimum
   and maximum. Constant rows map to 0. Raw values remain available in tooltips.
 - The three **min / avg / max** columns immediately to the right summarize
-  every sample in the loaded file for each metric. Their cells stay **8 × 8 px**
-  while sample columns zoom; they track metric rows when scrolling. Hover for
-  full raw values. Column titles are vertical to fit the 8 px width.
+  every sample in the loaded file for each metric. Their square cells follow
+  **Cell size** (16 or 8 px) and stay fixed while sample columns zoom;
+  they track metric rows when scrolling. Hover for full raw values.
+  Column titles are vertical at 8 px to avoid overlap.
   Statistics share the map’s color scale. **avg** is the
   arithmetic mean of valid samples, including zero; missing samples are skipped.
   An entirely missing row stays gray. Start/End and panning do not change these
@@ -256,9 +257,16 @@ Hover a cell for the full metric name, sample label and raw value.
   after data queries and refreshed when the file reloads.
 - Gray cells mean missing or nonfinite values; valid zero values use the normal
   color scale. Missing or nonnumeric metric columns produce an explicit error.
-- Cells start at **8 × 8 CSS px**, with a fixed **8 px row height** and no
-  Cell size setting. Use **Ctrl+wheel** over the plot to zoom horizontally
-  between **1 and 8 px per sample**, centered on the sample under the pointer.
+- Cells start at **16 × 16 CSS px**. Choose **16×16** or **8×8** using
+  **Cell size** in any map's right sidebar. This sets the row height and resets
+  sample columns to the chosen width for every map in that panel; split panels
+  remain independent. New plots, Clear, Reload, file loads and Line/Heat switches
+  retain the choice on the current page; refreshing the page restores 16×16.
+  At 16 px, every visible metric row has a label. At 8 px, labels are spaced to
+  avoid overlap; all metric rows and samples remain, with full names in tooltips.
+  Use **Ctrl+wheel** to zoom sample columns between **1 px and the chosen size**,
+  centered on the sample under the pointer. Zoom-out stops when the selected
+  range fits the viewport, unless it still overflows at the 1 px minimum.
   Maps in the same panel share horizontal zoom, panning and Start/End so their
   samples stay aligned. Scroll vertically through the list of maps.
   Use **Shift+wheel** to pan horizontally, or use the horizontal/vertical
@@ -267,9 +275,9 @@ Hover a cell for the full metric name, sample label and raw value.
   fewer x-axis labels are shown; every sample still has its own cell.
   Enter sample labels into **Start / End** and press Enter to select a range.
   Data is rendered by visible windows without merging or downsampling samples.
-- Each map places its title, **Color / Min / Max**, dynamic status and
+- Each map places its title, **Cell size / Color / Min / Max**, dynamic status and
   sample/value explanations and instructions **inside the right sidebar**.
-  The three controls are equally **100 px** wide; hover Color to read its full
+  The four controls are equally **100 px** wide; hover Color to read its full
   selected label. The sidebar defaults to **180 px**. **Drag its left edge**
   to resize between **0 and 400 px**; at **0 px** the sidebar is hidden. Drag
   the plot's rightmost **8 px** edge left to show it again. This drag area
@@ -361,13 +369,17 @@ paths (Playwright and Chrome must already be installed):
 ```bash
 node scripts/test_heat_canvas_browser.cjs http://127.0.0.1:8000 /path/to/output/heat-pixels
 node scripts/test_heat_canvas_lifecycle.cjs http://127.0.0.1:8000 /path/to/output/heat-lifecycle
+node scripts/test_heat_cell_size.cjs http://127.0.0.1:8000 /path/to/output/heat-cell-size
 ```
 
 The pixel test generates a small metric fixture with 10,000 samples and compares
 all sample pixels, including outer strokes, against the bundled ECharts heatmap
-at DPR 1, 1.25, 1.5 and 2. It includes missing values, manual/per-metric color scales,
-hover and legend highlighting. The lifecycle test covers live DPR changes,
-Line/Heat transitions and repeated Plot/Clear/Delete. These tests do not establish
+at DPR 1, 1.25, 1.5 and 2 with both 16px and 8px cells. It includes missing values,
+manual/per-metric color scales, hover and legend highlighting. The lifecycle test
+covers live DPR changes, Line/Heat transitions and repeated Plot/Clear/Delete.
+The cell-size test checks linked maps, independent panels, metric labels, zoom
+limits, original array reuse and settings across real CSV/H5 reloads and mode changes.
+Use a new output directory for each test run. These tests do not establish
 long-term browser memory use or performance on every graphics device.
 
 ## Metric / Trace keyboard synchronization

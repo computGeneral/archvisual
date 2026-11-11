@@ -7,7 +7,7 @@
 }(typeof window === 'undefined' ? this : window, function () {
     'use strict';
     var palette = ['#f7fbff', '#c6dbef', '#6baed6', '#2171b5', '#fdae61', '#d73027'];
-    var rowHeight = 8, minColumnWidth = 1, maxColumnWidth = 8;
+    var defaultCellSize = 16, minColumnWidth = 1;
     var defaultAxisTop = 52, bottomSpace = 40, minMapHeight = 140, scrollbarSpace = 15;
     var statistics = ['min', 'avg', 'max'], statisticsGap = 8;
     var defaultSidebarWidth = 180, minSidebarWidth = 0, maxSidebarWidth = 400;
@@ -115,7 +115,7 @@
         return [low, high];
     }
     function newState() {
-        return { mode: 'line', maps: [], times: [], axisTop: null, config: {}, columnWidth: maxColumnWidth,
+        return { mode: 'line', maps: [], times: [], axisTop: null, config: {}, cellSize: defaultCellSize, columnWidth: defaultCellSize,
             minColumnWidth: minColumnWidth,
             start: 0, end: -1, scrollLeft: 0, pendingScrollLeft: null, nextPlot: 1,
             token: 0, selected: null, notice: '', missing: [], loaded: false, waiting: false, sidebarWidth: defaultSidebarWidth };
@@ -219,6 +219,33 @@
             states[panel].sidebarWidth = Math.max(minSidebarWidth, Math.min(maxSidebarWidth, Math.round(width)));
             scheduleRender(panel);
         }
+        function setCellSize(panel, size) {
+            var s = states[panel];
+            if ((size !== 8 && size !== 16) || size === s.cellSize) return;
+            var oldSize = s.cellSize, scroll = s.pendingScrollLeft === null ? s.scrollLeft : s.pendingScrollLeft;
+            var count = Math.max(0, s.end - s.start + 1);
+            var plotWidth = s.maps.reduce(function (width, m) {
+                return Math.max(width, m.widget.layout ? m.widget.layout.plotWidth : 0);
+            }, 0);
+            var first = s.pendingScrollLeft === null ?
+                visibleStart(scroll, Math.max(0, count * s.columnWidth - plotWidth),
+                    count, Math.max(1, Math.floor(plotWidth / s.columnWidth)), s.columnWidth) :
+                Math.floor(scroll / s.columnWidth);
+            s.cellSize = size; s.columnWidth = size;
+            s.minColumnWidth = Math.min(size, s.minColumnWidth);
+            s.pendingScrollLeft = first * size;
+            s.maps.forEach(function (m) {
+                var w = m.widget, capacity = w.layout ? Math.max(1, Math.floor(w.layout.plotHeight / oldSize)) : 1;
+                // Preserve the first visible metric when the new window fits;
+                // native scrolling clamps it near the end of a shorter map.
+                var row = w.pendingScrollTop === null ?
+                    visibleStart(w.viewport.scrollTop, w.viewport.scrollHeight - w.viewport.clientHeight,
+                        m.rows.length, capacity, oldSize) : w.pendingScrollTop / oldSize;
+                w.pendingScrollTop = row * size;
+                invalidateSamples(m); syncHeatControls(panel, m);
+            });
+            scheduleRender(panel);
+        }
         function endSidebarDrag(panel) {
             var parent = widgets[panel], drag = parent && parent.drag;
             if (!drag) return;
@@ -244,8 +271,9 @@
             mapStatus(m, m.rows.length + ' metrics × ' + s.times.length + ' samples · ' +
                 Number(s.columnWidth.toFixed(2)) + ' px/sample');
         }
-        function syncHeatControls(m) {
+        function syncHeatControls(panel, m) {
             var w = m.widget;
+            w.cellSize.value = String(states[panel].cellSize);
             w.color.value = m.color; w.min.value = m.min; w.max.value = m.max;
             w.color.title = w.color.options[w.color.selectedIndex].text;
             w.min.disabled = w.max.disabled = m.color === 'row';
@@ -304,7 +332,8 @@
             card.appendChild(viewport); card.appendChild(sidebar); card.appendChild(resizer);
             parent.host.appendChild(card);
             var w = m.widget = { card: card, sidebar: sidebar, controls: controls, status: info, viewport: viewport, description: description,
-                spacer: spacer, canvas: canvas, axes: axes, cells: null, dpr: null, legendBinding: null, resizer: resizer, chart: null, viewKey: null, layout: null, legendLayout: null, scrollLeft: 0,
+                spacer: spacer, canvas: canvas, axes: axes, cells: null, dpr: null, legendBinding: null, resizer: resizer, chart: null, viewKey: null, layout: null, legendLayout: null, scrollLeft: 0, pendingScrollTop: null,
+                cellSize: controls.querySelector('[name="heatCellSize"]'),
                 color: controls.querySelector('[name="heatColor"]'),
                 min: controls.querySelector('[name="heatMin"]'), max: controls.querySelector('[name="heatMax"]') };
             w.actions = window.MetricGroupActions.install(card, {
@@ -318,7 +347,7 @@
                 // Cell clicks keep their metric selection; sidebar controls do not reset it.
                 if (event.target === card || event.target === viewport || event.target === spacer) selectGroup(panel, m);
             });
-            syncHeatControls(m);
+            syncHeatControls(panel, m);
             resizer.addEventListener('pointerdown', function (event) {
                 if (event.button !== 0 || parent.drag) return;
                 event.preventDefault(); activatePanel(panel);
@@ -346,9 +375,12 @@
                 event.preventDefault(); event.stopPropagation(); activatePanel(panel); setSidebarWidth(panel, width);
             });
             controls.addEventListener('focusin', function () { activatePanel(panel); });
+            w.cellSize.addEventListener('change', function () {
+                activatePanel(panel); setCellSize(panel, Number(w.cellSize.value));
+            });
             w.color.addEventListener('change', function () {
                 activatePanel(panel); m.color = w.color.value; m.error = '';
-                syncHeatControls(m); scheduleRender(panel);
+                syncHeatControls(panel, m); scheduleRender(panel);
             });
             [w.min, w.max].forEach(function (input) {
                 input.addEventListener('change', function () {
@@ -376,7 +408,7 @@
                     s.pendingScrollLeft = null; scheduleRender(panel); return;
                 }
                 var oldWidth = s.columnWidth;
-                var nextWidth = Math.max(s.minColumnWidth, Math.min(maxColumnWidth,
+                var nextWidth = Math.max(s.minColumnWidth, Math.min(s.cellSize,
                     Math.round(oldWidth * Math.exp(-delta / 300) * 100) / 100));
                 // The fit floor can have more than two decimal places. Rounding
                 // a tiny wheel step must not reverse the requested direction.
@@ -493,6 +525,7 @@
         }
         function render(panel) {
             var s = states[panel], parent = panelWidget(panel);
+            var rowHeight = s.cellSize;
             if (s.mode !== 'heat' || !parent.host.clientWidth) return;
             // Measure once when a Heat map actually needs layout. Line loads and
             // unchanged sample axes on Reload do not measure every label again.
@@ -524,10 +557,10 @@
             });
             // Measure after applying sidebar/card sizes, including offscreen
             // maps. One floor per panel keeps every map on the same x scale.
-            var layouts = s.maps.map(function (m) { return mapLayout(m.widget, s.axisTop); });
+            var layouts = s.maps.map(function (m) { return mapLayout(m.widget, s.axisTop, rowHeight); });
             var sampleCount = Math.max(0, s.end - s.start + 1);
             var plotWidth = layouts.reduce(function (width, layout) { return Math.max(width, layout.plotWidth); }, 0);
-            s.minColumnWidth = sampleCount ? Math.min(maxColumnWidth, Math.max(minColumnWidth, plotWidth / sampleCount)) : minColumnWidth;
+            s.minColumnWidth = sampleCount ? Math.min(s.cellSize, Math.max(minColumnWidth, plotWidth / sampleCount)) : minColumnWidth;
             s.columnWidth = Math.max(s.columnWidth, s.minColumnWidth);
             if (samplesFit(sampleCount, s.columnWidth, plotWidth)) {
                 s.scrollLeft = 0; s.pendingScrollLeft = null;
@@ -539,7 +572,7 @@
             var hostRect = parent.host.getBoundingClientRect();
             s.maps.forEach(function (m, index) { renderMap(panel, m, hostRect, layouts[index]); });
         }
-        function mapLayout(w, top) {
+        function mapLayout(w, top, rowHeight) {
             var viewportStyle = getComputedStyle(w.viewport);
             var width = Math.max(1, Math.floor(parseFloat(viewportStyle.width)));
             var height = Math.max(1, Math.floor(parseFloat(viewportStyle.height)));
@@ -565,6 +598,7 @@
         }
         function renderMap(panel, m, hostRect, layout) {
             var s = states[panel], w = m.widget;
+            var rowHeight = s.cellSize;
             var width = layout.width, height = layout.height, left = layout.left, top = layout.top;
             var bottom = bottomSpace, right = layout.right;
             var sampleCount = Math.max(0, s.end - s.start + 1);
@@ -579,6 +613,9 @@
             if (w.spacer.style.height !== spacerHeight) w.spacer.style.height = spacerHeight;
             // A stale canvas size must not inflate the measured scroll range.
             w.canvas.style.width = width + 'px'; w.canvas.style.height = height + 'px';
+            if (w.pendingScrollTop !== null) {
+                w.viewport.scrollTop = w.pendingScrollTop; w.pendingScrollTop = null;
+            }
             layout.scrollRange = fits ? 0 : Math.max(0, sampleCount * s.columnWidth - layout.plotWidth);
             layout.nativeMax = nativeScrollMax(w);
             w.viewport.scrollLeft = layout.scrollRange ? s.scrollLeft / layout.scrollRange * layout.nativeMax : 0;
@@ -596,7 +633,7 @@
             try { scale = bounds(m.rows, normal, m.min, m.max); }
             catch (error) { m.error = error.message; mapStatus(m, error.message, true); return; }
             var viewKey = JSON.stringify([width, height, firstCol, lastCol, firstRow, lastRow,
-                s.columnWidth, m.color, scale, m.busy, window.devicePixelRatio || 1]);
+                s.columnWidth, rowHeight, m.color, scale, m.busy, window.devicePixelRatio || 1]);
             if (w.viewKey === viewKey && w.rows === m.rows && w.times === s.times) {
                 if (!m.error) summarize(panel, m);
                 return;
@@ -659,9 +696,9 @@
                     axisLabel: { interval: Math.max(0, Math.ceil(48 / s.columnWidth) - 1), rotate: 50, fontSize: 10 } },
                     { type: 'category', gridIndex: 1, data: statistics, position: 'top', show: !!names.length,
                         axisTick: { show: false }, axisLine: { show: false },
-                        axisLabel: { interval: 0, rotate: 90, fontSize: 8 } }],
+                        axisLabel: { interval: 0, rotate: rowHeight === 8 ? 90 : 50, fontSize: rowHeight === 8 ? 8 : 10 } }],
                 yAxis: [{ type: 'category', data: names, inverse: true,
-                    axisLabel: { width: left - 20, overflow: 'truncate', fontSize: 11 },
+                    axisLabel: { width: left - 20, overflow: 'truncate', fontSize: 11, interval: rowHeight === 16 ? 0 : 'auto' },
                     axisTick: { show: false } },
                     { type: 'category', gridIndex: 1, data: names, inverse: true,
                         axisLabel: { show: false }, axisTick: { show: false }, axisLine: { show: false } }],
@@ -787,7 +824,8 @@
                 m.group = clone(groups[key]); m.group.Sig = Array.from(new Set(m.group.Sig));
                 invalidateSamples(m);
                 m.rows = []; m.data = null; m.loaded = false; m.error = '';
-                syncHeatControls(m); m.widget.card.classList.remove('heat-map-selected');
+                syncHeatControls(panel, m); m.widget.card.classList.remove('heat-map-selected');
+                m.widget.pendingScrollTop = null;
                 m.widget.viewport.scrollTop = 0;
                 panelWidget(panel).host.appendChild(m.widget.card); maps.push(m);
             });

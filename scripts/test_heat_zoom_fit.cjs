@@ -39,6 +39,8 @@ function fixture(count) {
             ClearAll(panel);
             for (let i = 0; i < maps; ++i) await metricHeat.plot([i % 2 ? 'active' : 'traffic'], panel);
         }, { panel, maps });
+        const size = cards(panel).first().locator('[name="heatCellSize"]');
+        if (await size.inputValue() !== '8') await size.selectOption('8');
         await frames();
     }
     async function fresh(count, maps = 2) {
