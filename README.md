@@ -24,6 +24,8 @@ python3 -B archvisual.py runserver 0.0.0.0:8000
 python3 -B archvisual.py check
 python3 -B archvisual.py test dataviewer --noinput
 python3 -B build_visual.py
+# Limit parallel C compiler jobs explicitly:
+python3 -B build_visual.py -j 4
 ```
 
 The environment must already provide Django, pandas, NumPy and PyTables
@@ -48,8 +50,8 @@ Relative overrides are anchored to the ArchVisual root, independent of the
 caller's directory. Source-path protection and existing
 `ARCHEXPLOR_ARCHVISUAL_*` output aliases are retained.
 
-Releases use `bash rel_visual.sh [maj|mid|min]`. Omit the argument to rebuild
-and release the current version. The release lock protects
+Releases use `bash rel_visual.sh [-j N] [maj|mid|min]`. Omit the version
+argument to rebuild and release the current version. The release lock protects
 version updates; builds use an isolated staging directory, verify archives
 before publication and retain rollback protection. This lock controls release
 publication, not the Python environment.
@@ -387,6 +389,22 @@ The existing time conversion and Trace display padding remain unchanged.
 From the ArchVisual repository root, run `bash rel_visual.sh` to rebuild and
 release the version currently recorded in `version.txt`, without incrementing
 it. Pass `min`, `mid` or `maj` to increment the patch, minor or major version.
+
+Both build and release entrypoints accept `-j N` (or `--jobs N`), where N
+is a positive integer limiting parallel C compiler jobs. Omitting it keeps
+Nuitka's default; it does not force a single job. On the release entrypoint,
+the option can appear before or after the version increment:
+
+```bash
+python3 -B build_visual.py -j 4
+bash rel_visual.sh -j 4          # rebuild the current version
+bash rel_visual.sh min -j 4      # bump the patch version
+```
+
+Invalid or missing job counts fail before build cleanup or release staging.
+This option controls compilation concurrency, not the running web service
+or archive compression. More jobs can require more memory.
+
 A validated rebuild atomically replaces an existing package with the same
 version and platform; build or publication failures preserve the previous
 package through the rollback protocol below.

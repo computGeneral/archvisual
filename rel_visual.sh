@@ -5,9 +5,52 @@
 # atomically publishing it and updating version.txt. Existing releases survive
 # build/packaging failures.
 #
-# Usage: bash rel_visual.sh [maj|mid|min]
+# Usage: bash rel_visual.sh [-j N] [maj|mid|min]
 
 set -euo pipefail
+
+usage() {
+    echo "Usage: bash rel_visual.sh [-j N] [maj|mid|min]"
+    echo "  no version argument - rebuild and release the current version"
+    echo "  maj  - bump major   (MAJ+1.0.0)"
+    echo "  mid  - bump minor   (MAJ.MIN+1.0)"
+    echo "  min  - bump patch   (MAJ.MIN.MIN+1)"
+    echo "  -j, --jobs N - positive parallel C compiler job count (default: Nuitka default)"
+}
+
+set_jobs() {
+    if [[ ! "$1" =~ ^[0-9]+$ || ! "$1" =~ [1-9] ]]; then
+        echo "ERROR: jobs must be a positive integer" >&2
+        exit 1
+    fi
+    JOBS="$1"
+}
+
+# Parse before any build cleanup, output creation or release lock acquisition.
+ARG=""
+JOBS=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -j|--jobs)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: $1 requires a positive integer" >&2
+                exit 1
+            fi
+            set_jobs "$2"
+            shift 2 ;;
+        --jobs=*) set_jobs "${1#--jobs=}"; shift ;;
+        -j?*) set_jobs "${1#-j}"; shift ;;
+        maj|mid|min)
+            if [[ -n "$ARG" ]]; then
+                echo "ERROR: specify at most one version increment" >&2
+                exit 1
+            fi
+            ARG="$1"
+            shift ;;
+        -h|--help) usage; exit 0 ;;
+        *) usage >&2; exit 1 ;;
+    esac
+done
 
 # Resolve roots from the script location so it runs from anywhere.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,21 +71,8 @@ case "$RELEASE_DIR" in
 esac
 
 # ---------------------------------------------------------------------------
-# 1. Validate the optional version increment
+# 1. Validate the release README
 # ---------------------------------------------------------------------------
-ARG="${1:-}"
-case "$ARG" in
-    ""|maj|mid|min) : ;;
-    *)
-        echo "Usage: bash rel_visual.sh [maj|mid|min]" >&2
-        echo "  no argument - rebuild and release the current version" >&2
-        echo "  maj  - bump major   (MAJ+1.0.0)" >&2
-        echo "  mid  - bump minor   (MAJ.MIN+1.0)" >&2
-        echo "  min  - bump patch   (MAJ.MIN.MIN+1)" >&2
-        exit 1
-        ;;
-esac
-
 if [[ ! -f "$RELEASE_README" || ! -s "$RELEASE_README" ]]; then
     echo "ERROR: release README is missing or empty: $RELEASE_README" >&2
     exit 1
@@ -137,7 +167,11 @@ read -r OS_TAG ARCH_TAG EXECUTABLE_NAME <<< "$PLATFORM_INFO"
 # 5. Run build_visual.py inside this release's private output root.
 # ---------------------------------------------------------------------------
 echo "=== Running build_visual.py ==="
-python3 -B "$PROJECT_ROOT/build_visual.py"
+BUILD_COMMAND=(python3 -B "$PROJECT_ROOT/build_visual.py")
+if [[ -n "$JOBS" ]]; then
+    BUILD_COMMAND+=(-j "$JOBS")
+fi
+"${BUILD_COMMAND[@]}"
 
 if [[ ! -s "$BINARY_DIR/$EXECUTABLE_NAME" ]]; then
     echo "ERROR: build executable not found or empty: $BINARY_DIR/$EXECUTABLE_NAME" >&2

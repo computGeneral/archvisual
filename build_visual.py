@@ -15,6 +15,7 @@
 # Author          : gene@computGeneral.com
 # Note            :Nuitka build script for the perfsim project.
 
+import argparse
 import os
 import sys
 import platform
@@ -87,7 +88,21 @@ def get_platform_specifics():
             "icon_extension": ".ico"
         }
 
-def build_executable():
+def positive_jobs(value):
+    if not value.isascii() or not value.isdecimal() or int(value) < 1:
+        raise argparse.ArgumentTypeError('jobs must be a positive integer')
+    return int(value)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description='Build the ArchVisual standalone distribution.')
+    parser.add_argument('-j', '--jobs', type=positive_jobs, metavar='N',
+                        help='maximum parallel C compiler jobs (default: Nuitka default)')
+    args = parser.parse_args(argv)
+    build_executable(jobs=args.jobs)
+
+
+def build_executable(jobs=None):
     """Build executable using Nuitka - Updated for Django"""
     project_root = str(os.path.dirname(os.path.abspath(__file__)))
     platform_cfg = get_platform_specifics()
@@ -135,6 +150,8 @@ def build_executable():
         # Add these plugins for removing unused imports
         "--plugin-enable=anti-bloat",
     ]
+    if jobs is not None:
+        cmd.append(f"--jobs={jobs}")
     
     # Add data files for Django
     for src, dest in collect_data_files(project_root):
@@ -246,7 +263,7 @@ pause
 
 if __name__ == "__main__":
     try:
-        build_executable()
+        main()
     except Exception as e:
         print(f"[FATAL] BUILD FAILED: {e}", file=sys.stderr)
         import traceback

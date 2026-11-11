@@ -6,6 +6,7 @@ Fixtures use the real path helper and the python3 selected through PATH.
 """
 import importlib.util
 import io
+import json
 import os
 import platform
 import shlex
@@ -54,10 +55,11 @@ class ReleaseControlTests(ReleaseFixture):
         self.legacy.write_bytes(b'legacy archive outside staging')
         shutil.copytree(PROJECT / 'scripts', self.project / 'scripts')
         (self.project / 'build_visual.py').write_text('''from pathlib import Path
-import os, platform, shutil, time
+import json, os, platform, shutil, sys, time
 project = Path(__file__).parent
 root = Path(os.environ['ARCHVISUAL_OUTPUT_ROOT'])
 assert root.is_relative_to(project / '__output__/.release-staging') or os.environ.get('RELEASE_ALLOW_CUSTOM_OUTPUT') == '1'
+(project.parent / 'observed-build-args.json').write_text(json.dumps(sys.argv[1:]))
 (project.parent / 'observed-version.txt').write_bytes((project / 'version.txt').read_bytes())
 (project.parent / 'observed-root.txt').write_text(str(root))
 shutil.rmtree(root / 'output', ignore_errors=True)
@@ -95,7 +97,9 @@ if mode == 'external-version':
         environment = dict(self.env, RELEASE_TEST_MODE=mode)
         environment.update(env or {})
         command = ['bash', str(self.project / 'rel_visual.sh')]
-        if argument is not None:
+        if isinstance(argument, (list, tuple)):
+            command.extend(argument)
+        elif argument is not None:
             command.append(argument)
         result = subprocess.run(command,
                                 cwd=self.case, env=environment, capture_output=True, text=True, timeout=20)
@@ -125,6 +129,7 @@ if mode == 'external-version':
     def test_success_updates_version_only_after_build_and_preserves_old_releases(self):
         result = self.run_release()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((self.repo / 'observed-build-args.json').read_text()), [])
         self.assertEqual((self.repo / 'observed-version.txt').read_text(), '1.2.3\n')
         self.assertEqual(self.version.read_text(), '1.2.4\n')
         self.assertEqual(self.old.read_bytes(), b'previous version archive')
@@ -138,6 +143,7 @@ if mode == 'external-version':
     def test_no_argument_rebuilds_current_version_and_replaces_same_platform_archive(self):
         result = self.run_release(argument=None)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((self.repo / 'observed-build-args.json').read_text()), [])
         self.assertIn('Re-release version: 1.2.3 (unchanged)', result.stdout)
         self.assertEqual((self.repo / 'observed-version.txt').read_text(), '1.2.3\n')
         self.assertEqual(self.version.read_text(), '1.2.3\n')
@@ -145,6 +151,52 @@ if mode == 'external-version':
         self.assertEqual(self.legacy.read_bytes(), b'legacy archive outside staging')
         release_tools.verify_archive(self.old, '1.2.3', release_tools.platform_tags()[2])
         self.assert_clean()
+
+    def test_jobs_reach_builder_with_same_version_and_optional_version_bumps(self):
+        for args, jobs, version in [
+                (['-j', '4'], '4', '1.2.3'),
+                (['-j', '4', 'min'], '4', '1.2.4'),
+                (['min', '-j', '4'], '4', '1.2.4'),
+                (['-j', '2', 'mid'], '2', '1.3.0'),
+                (['maj', '-j', '2'], '2', '2.0.0'),
+                (['-j4'], '4', '1.2.3'),
+                (['--jobs', '2'], '2', '1.2.3'),
+                (['--jobs=8'], '8', '1.2.3'),
+                (['-j', '0004'], '0004', '1.2.3')]:
+            with self.subTest(args=args):
+                self.version.write_text('1.2.3\n')
+                result = self.run_release(argument=args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads((self.repo / 'observed-build-args.json').read_text()),
+                                 ['-j', jobs])
+                self.assertEqual((self.repo / 'observed-version.txt').read_text(), '1.2.3\n')
+                self.assertEqual(self.version.read_text(), version + '\n')
+                release_tools.verify_archive(self.releases / self.filename(version), version,
+                                             release_tools.platform_tags()[2])
+                self.assert_clean()
+
+    def test_invalid_jobs_and_extra_arguments_stop_before_release_side_effects(self):
+        for args in [
+                ['-j'], ['--jobs'], ['-j', ''], ['-j', '0'], ['-j', '000'],
+                ['-j', '-1'], ['-j', '1.5'], ['-j', 'four'], ['-j', '４'],
+                ['--jobs='], ['-j0'], ['min', 'maj'], ['min', 'extra'],
+                ['-j', '4', 'min', '--unknown']]:
+            with self.subTest(args=args):
+                result = self.run_release(argument=args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.repo / 'observed-build-args.json').exists())
+                self.assertFalse((self.project / '.archvisual-release.lock').exists())
+                self.assertFalse((self.module / '.release-staging').exists())
+                self.assert_preserved()
+                self.assert_clean()
+
+    def test_release_help_does_not_build_or_modify_version(self):
+        result = self.run_release(argument='--help')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('-j N', result.stdout)
+        self.assertFalse((self.repo / 'observed-build-args.json').exists())
+        self.assertFalse((self.project / '.archvisual-release.lock').exists())
+        self.assert_preserved()
 
     def test_release_does_not_require_the_external_flock_command(self):
         folder = self.case / 'fake-bin'
@@ -163,7 +215,7 @@ if mode == 'external-version':
 
         with (self.project / '.archvisual-release.lock').open('w') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            result = self.run_release()
+            result = self.run_release(argument=['min', '-j', '4'])
             self.assertEqual(result.returncode, 75, result.stderr)
             self.assertIn('another ArchVisual release is running', result.stderr)
             self.assertFalse((self.repo / 'observed-version.txt').exists())
@@ -216,7 +268,7 @@ if mode == 'external-version':
         self.assert_clean()
 
     def test_build_failure_keeps_version_and_old_packages(self):
-        for argument in (None, 'min'):
+        for argument in (None, 'min', ['-j', '4'], ['min', '-j', '4']):
             with self.subTest(argument=argument):
                 self.assertEqual(self.run_release('fail', argument=argument).returncode, 42)
                 self.assert_preserved()
@@ -313,7 +365,7 @@ os.replace = _fail_fixture_commit
 
     def test_release_entrypoint_rolls_back_on_version_commit_failure(self):
         self.inject_version_commit_failure()
-        for argument in (None, 'min'):
+        for argument in (None, 'min', ['min', '-j', '4']):
             with self.subTest(argument=argument):
                 self.assertNotEqual(self.run_release(argument=argument).returncode, 0)
                 self.assert_preserved()
@@ -569,6 +621,44 @@ class ArchiveAndPlatformTests(ReleaseFixture):
 
 
 class BuildFailureTests(ReleaseFixture):
+    def test_cli_jobs_reach_nuitka_and_omission_preserves_its_default(self):
+        spec = importlib.util.spec_from_file_location('release_build_under_test', PROJECT / 'build_visual.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for args, expected in [([], []), (['-j', '4'], ['--jobs=4']),
+                               (['-j4'], ['--jobs=4']), (['--jobs', '2'], ['--jobs=2']),
+                               (['--jobs=8'], ['--jobs=8']), (['-j', '0004'], ['--jobs=4'])]:
+            with self.subTest(args=args):
+                with mock.patch.dict(os.environ, {'ARCHVISUAL_OUTPUT_ROOT': str(self.case / 'builder')}), \
+                        mock.patch.object(module, 'collect_static_files'), \
+                        mock.patch.object(module.subprocess, 'check_call',
+                                          side_effect=subprocess.CalledProcessError(32, ['nuitka'])) as compile_call:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        module.main(args)
+                command = compile_call.call_args.args[0]
+                self.assertEqual(command[0], sys.executable)
+                self.assertEqual([arg for arg in command if arg.startswith('--jobs=')], expected)
+                self.assertIn('--include-module=_json', command)
+
+    def test_build_cli_rejects_invalid_arguments_before_cleaning_outputs(self):
+        output = self.case / 'builder'
+        for name in ('output', 'build'):
+            (output / name).mkdir(parents=True)
+            (output / name / 'keep').write_bytes(b'previous build')
+        env = dict(os.environ, ARCHVISUAL_OUTPUT_ROOT=str(output))
+        cases = [(['--help'], 0), (['-j'], 2), (['--jobs'], 2), (['-j', ''], 2),
+                 (['-j', '0'], 2), (['-j', '000'], 2), (['-j', '-1'], 2),
+                 (['-j', '1.5'], 2), (['-j', 'four'], 2), (['-j', '４'], 2),
+                 (['--jobs='], 2), (['-j0'], 2), (['-j', '4', 'extra'], 2)]
+        for args, expected in cases:
+            with self.subTest(args=args):
+                result = subprocess.run([sys.executable, '-B', str(PROJECT / 'build_visual.py'), *args],
+                                        cwd=self.case, env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                for name in ('output', 'build'):
+                    self.assertEqual((output / name / 'keep').read_bytes(), b'previous build')
+                self.assertFalse((output / 'staticfiles').exists())
+
     def test_macos_and_linux_keep_the_standalone_distribution_intact(self):
         spec = importlib.util.spec_from_file_location('release_build_under_test', PROJECT / 'build_visual.py')
         module = importlib.util.module_from_spec(spec)
