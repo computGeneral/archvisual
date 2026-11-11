@@ -8,7 +8,9 @@
     <script src="/static/js/jquery-3.4.0.js"></script>
     <script src="/static/js/metric_samples.js?v=1"></script>
     <script src="/static/js/metric_heat_canvas.js?v=1"></script>
-    <script src="/static/js/metric_heat.js?v=19"></script>
+    <script src="/static/js/metric_group_actions.js?v=1"></script>
+    <link rel="stylesheet" href="/static/css/metric_group_actions.css?v=1">
+    <script src="/static/js/metric_heat.js?v=20"></script>
     <script src="/static/js/metric_search_resize.js?v=1"></script>
     <script src="/static/js/metric_search.js?v=1"></script>
     <link rel="icon" href="/static/image/metricviewer.ico?v=6" type="image/x-icon" sizes="16x16 32x32 48x48 64x64">
@@ -483,7 +485,7 @@
             <label>Color <select name="heatColor"><option value="raw">Shared raw scale</option><option value="row">Per-metric normalized</option></select></label>
             <label>Min <input name="heatMin" type="number" step="any" placeholder="Auto"></label>
             <label>Max <input name="heatMax" type="number" step="any" placeholder="Auto"></label>
-            <span class="heat-toolbar-hint">One cell = one sample · min/avg/max: all samples · avg: valid-sample mean · Gray = no valid data · Ctrl+wheel: horizontal zoom · Shift+wheel / scrollbars: pan · Wheel: scroll · Drag left border: resize/hide sidebar · Drag right edge: show hidden sidebar · Click a cell, then Delete: remove metric</span>
+            <span class="heat-toolbar-hint">One cell = one sample · min/avg/max: all samples · avg: valid-sample mean · Gray = no valid data · Ctrl+wheel: horizontal zoom · Shift+wheel / scrollbars: pan · Wheel: scroll · Drag left border: resize/hide sidebar · Drag right edge: show hidden sidebar · Click a cell, then Delete: remove metric · Shift+Delete: remove group · ⋯: group actions</span>
         </div>
     </template>
     <div class="content">
@@ -530,6 +532,9 @@
     var lineSamples = {1: new Map(), 2: new Map()};
     var lineMissingMetrics = {1: new Set(), 2: new Set()};
     var pendingLocalLoad = null, fileLoadBusy = false;
+    var lineActions = {1: new Map(), 2: new Map()};
+    var metricRemovals = {1: {revision:0, groups:new Map(), metrics:new Map()},
+                        2: {revision:0, groups:new Map(), metrics:new Map()}};
 
     // Panel 1 (primary)
     var dom = document.getElementById('container');
@@ -636,6 +641,7 @@
 
     // Set active panel for operations
     function setActivePanel(panel) {
+        if (panel !== activePanel) MetricGroupActions.close();
         activePanel = panel;
         updateSamplePeriodDisplay();
         updateReloadMenu();
@@ -687,7 +693,9 @@
                           (event.target && event.target.isContentEditable));
         if (isEditable) return;
         if (metricHeat && metricHeat.isHeat(activePanel)) {
-            if (event.key === 'Delete') { event.preventDefault(); metricHeat.removeSelected(activePanel); }
+            if (event.key === 'Delete' || event.keyCode === 46) {
+                event.preventDefault(); metricHeat.removeSelected(activePanel, event.shiftKey);
+            }
             return;
         }
 
@@ -698,15 +706,17 @@
         if (event.key === "v") {
             console.log("Time: " + window.downplaycache.time, JSON.parse(JSON.stringify(window.downplaycache.res)));
         }
-        // use Delete key to delete the last clicked metric group
+        // Delete removes a selected metric; Shift+Delete removes its group.
         if (event.key === 'Delete' || event.keyCode === 46) {
             event.preventDefault();
             var target = activePanel === 2 ? lastClickedTarget2 : lastClickedTarget;
-            if (target) {
-                console.log('Delete:', target);
-                delete_metric_group(target.name, activePanel);
-            } else {
-                console.log('No target to delete!');
+            if (target && target.name) {
+                if (event.shiftKey) delete_metric_group(target.name, activePanel);
+                else if (target.metric) delete_metric(target.name, target.metric, activePanel);
+                else {
+                    var actions = lineActions[activePanel].get(target.name);
+                    if (actions) actions.hint('Select a metric, or use Remove metric…');
+                }
             }
         }
         // 'M' key to clear all markers for active panel
@@ -969,6 +979,7 @@
             option['series'].push({
                 id: group_name + "&" + signal,
                 type: 'line',
+                triggerLineEvent: true,
                 smooth: true,
                 name: group_name,
                 areaStyle: {
@@ -1078,11 +1089,90 @@
         rememberLineSamples(update_signal_data, panel);
     }
 
+    function selectLineTarget(panel, group, metric) {
+        setActivePanel(panel);
+        var target = panel === 2 ? lastClickedTarget2 : lastClickedTarget;
+        target.type = metric === null ? 'group' : 'series'; target.name = group; target.metric = metric;
+        lineActions[panel].forEach(function (actions) { actions.hint(''); });
+    }
+
+    function updateLineActions(panel) {
+        var chart = getPanelChart(panel), groups = panel === 2 ? MetricSelectList2 : MetricSelectList;
+        if (!chart) return;
+        lineActions[panel].forEach(function (actions, key) {
+            if (!Object.prototype.hasOwnProperty.call(groups, key)) { actions.destroy(); lineActions[panel].delete(key); }
+        });
+        (chart.getOption().grid || []).forEach(function (grid) {
+            var key = grid.id;
+            if (!Object.prototype.hasOwnProperty.call(groups, key)) return;
+            if (!lineActions[panel].has(key)) lineActions[panel].set(key, MetricGroupActions.install(panel === 2 ? dom2 : dom, {
+                group:key, metrics:function () { return groups[key] ? groups[key].Sig.slice() : []; },
+                select:function () { selectLineTarget(panel, key, null); },
+                removeMetric:function (name) { delete_metric(key, name, panel); },
+                removeGroup:function () { delete_metric_group(key, panel); }
+            }));
+            lineActions[panel].get(key).element.style.top = (Number(grid.top) + 2) + 'px';
+        });
+    }
+
+    function recordMetricRemoval(panel, group, metric) {
+        var state = metricRemovals[panel], revision = ++state.revision;
+        if (metric === undefined) state.groups.set(group, revision);
+        else {
+            if (!state.metrics.has(group)) state.metrics.set(group, new Map());
+            state.metrics.get(group).set(metric, revision);
+        }
+    }
+
+    // A late query may contain cached samples captured before a deletion.
+    // Filter only removals newer than that request, retaining unrelated work.
+    function filterMetricResponse(data, panel, revision) {
+        var state = metricRemovals[panel], result = Object.create(null);
+        Object.keys(data).forEach(function (group) {
+            if ((state.groups.get(group) || 0) > revision) return;
+            var removed = state.metrics.get(group), signals = Object.create(null);
+            Object.keys(data[group].Sig).forEach(function (name) {
+                if (!removed || (removed.get(name) || 0) <= revision) signals[name] = data[group].Sig[name];
+            });
+            if (Object.keys(signals).length) result[group] = Object.assign({}, data[group], {Sig:signals});
+        });
+        return result;
+    }
+
+    function delete_metric(group_name, metric_name, panel = 1) {
+        var chart = getPanelChart(panel), groups = panel === 2 ? MetricSelectList2 : MetricSelectList;
+        if (!chart || !Object.prototype.hasOwnProperty.call(groups, group_name) || !groups[group_name].Sig.includes(metric_name)) return;
+        if (groups[group_name].Sig.length === 1) { delete_metric_group(group_name, panel); return; }
+        recordMetricRemoval(panel, group_name, metric_name);
+        var option = chart.getOption();
+        var series = option.series.filter(function (entry) {
+            return !(entry.name === group_name && entry.id === group_name + '&' + metric_name);
+        });
+        chart.dispatchAction({type:'updateAxisPointer', currTrigger:'leave'});
+        chart.dispatchAction({type:'hideTip'});
+        // Drop old component slots without painting, then restore the full
+        // option so surviving series stay compact and zoom is retained.
+        chart.setOption({series:[]}, {replaceMerge:['series'], lazyUpdate:true});
+        option.series = series;
+        chart.setOption(option, {replaceMerge:['series']});
+        groups[group_name].Sig = groups[group_name].Sig.filter(function (name) { return name !== metric_name; });
+        var target = panel === 2 ? lastClickedTarget2 : lastClickedTarget;
+        if (target.name === group_name && target.metric === metric_name) target.metric = null;
+        currentHoverSnapshot[panel] = null;
+        pruneLineSamples(panel); updateLineActions(panel);
+    }
+
     function delete_metric_group(group_name, panel = 1) {
         var targetChart = panel === 2 ? myChart2 : myChart;
         var targetMetricSelectList = panel === 2 ? MetricSelectList2 : MetricSelectList;
         if (!targetChart || !Object.prototype.hasOwnProperty.call(targetMetricSelectList, group_name)) return;
 
+        recordMetricRemoval(panel, group_name);
+        var target = panel === 2 ? lastClickedTarget2 : lastClickedTarget;
+        if (target.name === group_name) { target.name = null; target.metric = null; target.type = null; }
+        currentHoverSnapshot[panel] = null;
+        targetChart.dispatchAction({type:'updateAxisPointer', currTrigger:'leave'});
+        targetChart.dispatchAction({type:'hideTip'});
         // Compact from the full current option, retaining zoom, legend,
         // axis styling and marker callbacks for every surviving group.
         var option = targetChart.getOption();
@@ -1160,6 +1250,7 @@
                 targetChart.resize();
             }
         }
+        updateLineActions(panel);
     }
 
     function ZoomChange(event) {
@@ -1284,6 +1375,7 @@
             return;
         }
         var plotPanel = activePanel, plotEpoch = metricEpoch[plotPanel];
+        var plotRevision = metricRemovals[plotPanel].revision;
         //var merge_check = document.getElementById('Merge');
         //var stack_check = document.getElementById('Stack');
         var group_name = document.getElementById('filterMetricGroup').value;
@@ -1333,7 +1425,8 @@
         function finishPlot(res) {
             if (res.code === 0) {
                 if (plotEpoch !== metricEpoch[plotPanel]) return;
-                append_metrics(samplePlan.merge(res.data), plotPanel);
+                var filtered = filterMetricResponse(samplePlan.merge(res.data), plotPanel, plotRevision);
+                if (Object.keys(filtered).length) append_metrics(filtered, plotPanel);
                 document.getElementById("MetricSelectDiv").style.display = "none";
             } else {
                 alert(res.msg);
@@ -1360,6 +1453,10 @@
 
     function ClearAll(panel = activePanel, forceLine = false) {
         ++metricEpoch[panel];
+        metricRemovals[panel] = {revision:0, groups:new Map(), metrics:new Map()};
+        var target = panel === 2 ? lastClickedTarget2 : lastClickedTarget;
+        target.name = null; target.metric = null; target.type = null;
+        MetricGroupActions.close();
         lineSamples[panel].clear();
         if (!forceLine && metricHeat && metricHeat.isHeat(panel)) {
             metricHeat.clear(panel);
@@ -1477,6 +1574,7 @@
 
     function ExportTemplate(isExport) {
         var templatePanel = activePanel, templateEpoch = metricEpoch[templatePanel];
+        var templateRevision = metricRemovals[templatePanel].revision;
         var template_name = document.getElementById('template_name').value;
         var isSecondary = activePanel === 2;
         var targetMetricSelectList = metricHeat && metricHeat.isHeat(templatePanel)
@@ -1513,7 +1611,7 @@
                 success: function (res) {
                     if (res.code === 0) {
                         if (templateEpoch !== metricEpoch[templatePanel]) return;
-                        append_metrics(res.data, templatePanel)
+                        append_metrics(filterMetricResponse(res.data, templatePanel, templateRevision), templatePanel)
                     } else {
                         alert(res.msg);
                     }
@@ -1867,92 +1965,50 @@
         });
         chart.on('downplay', function (event_params) {
             let { batch } = event_params;
+            if (!batch || !batch.length) return;
             let { series } = chart.getOption();
             let res = {};
             for (let b in batch) {
                 let idx = batch[b].seriesIndex;
                 let dataIdx = batch[b].dataIndex;
+                // Tooltip downplay can arrive after its old series was removed.
+                if (!series[idx] || dataIdx == null || dataIdx >= series[idx].data.length) continue;
                 let name = series[idx].id.split('&')[1];
                 let data = series[idx]["data"][dataIdx];
                 res[name] = data;
             }
             window.downplaycache = { time: batch[0].dataIndex, res, original: event_params };
         });
-        chart.on('click', function(params) {
-            if (params.componentType === 'legend') {
-                lastClickedTargetRef.type = 'legend';
-                lastClickedTargetRef.name = params.name;
-                console.log('selected target (legend):', lastClickedTargetRef);
-            } else if (params.componentType === 'series') {
-                lastClickedTargetRef.type = 'series';
-                lastClickedTargetRef.name = params.seriesName;
-                console.log('selected target (series):', lastClickedTargetRef);
-            }
-        });
-
-        // Add legendselectchanged event for easier selection via legend click
-        chart.on('legendselectchanged', function(params) {
-            // When user toggles a legend item, select it for potential deletion
-            if (params.name) {
-                lastClickedTargetRef.type = 'legend';
-                lastClickedTargetRef.name = params.name;
-                console.log('selected target (legend toggle):', lastClickedTargetRef);
-            }
-        });
-
-        // Add click handler for easier bar selection - click anywhere on series area
-        chart.getZr().on('click', function(params) {
-            let option = chart.getOption();
-            let grids = option.grid || [];
-            let series = option.series || [];
-
-            if (grids.length === 0 || series.length === 0) return;
-
-            // Find which grid was clicked based on y position
-            let clickedY = params.offsetY;
-            let clickedGrid = null;
-            let clickedGridIndex = -1;
-
-            for (let i = 0; i < grids.length; i++) {
-                let grid = grids[i];
-                let chartRect = chart.getZr().getWidth() || chart.getZr().dom.clientWidth;
-                let chartHeight = chart.getZr().getHeight() || chart.getZr().dom.clientHeight;
-
-                // Get grid position from option (top is percentage or pixel value)
-                let gridTop = grid.top;
-                let gridHeight = grid.height;
-                let gridBottom;
-
-                // Convert grid.top to pixels if it's a percentage or needs conversion
-                if (typeof gridTop === 'string' && gridTop.endsWith('%')) {
-                    gridTop = (parseFloat(gridTop) / 100) * chartHeight;
-                }
-                if (typeof gridHeight === 'string' && gridHeight.endsWith('%')) {
-                    gridHeight = (parseFloat(gridHeight) / 100) * chartHeight;
-                }
-                gridBottom = gridTop + gridHeight;
-
-                // Check if click is within this grid's vertical range
-                if (clickedY >= gridTop && clickedY <= gridBottom) {
-                    clickedGrid = grid;
-                    clickedGridIndex = i;
-                    break;
+        var directClick = null;
+        if (chart.metricSelectionClick) chart.off('click', chart.metricSelectionClick);
+        chart.metricSelectionClick = function (params) {
+            if (params.componentType !== 'series') return;
+            // Line/area events carry seriesIndex but may omit seriesId.
+            var series = chart.getOption().series[params.seriesIndex];
+            if (!series) return;
+            directClick = params.event;
+            selectLineTarget(panelNum, series.name, series.id.slice(series.name.length + 1));
+        };
+        chart.on('click', chart.metricSelectionClick);
+        if (chart.metricLegendClick) chart.off('legendselectchanged', chart.metricLegendClick);
+        chart.metricLegendClick = function (params) {
+            if (params.name) selectLineTarget(panelNum, params.name, null);
+        };
+        chart.on('legendselectchanged', chart.metricLegendClick);
+        if (chart.metricGridClick) chart.getZr().off('click', chart.metricGridClick);
+        chart.metricGridClick = function (params) {
+            if (params === directClick || (directClick && params.event === directClick.event)) return;
+            var grids = chart.getOption().grid || [], chartHeight = chart.getHeight();
+            for (var i = 0; i < grids.length; ++i) {
+                var grid = grids[i], top = grid.top, height = grid.height;
+                if (typeof top === 'string' && top.endsWith('%')) top = parseFloat(top) / 100 * chartHeight;
+                if (typeof height === 'string' && height.endsWith('%')) height = parseFloat(height) / 100 * chartHeight;
+                if (params.offsetY >= top && params.offsetY <= top + height) {
+                    selectLineTarget(panelNum, grid.id, null); return;
                 }
             }
-
-            if (clickedGrid && clickedGrid.id) {
-                // Find series belonging to this grid
-                for (let i = 0; i < series.length; i++) {
-                    let s = series[i];
-                    if (s.name === clickedGrid.id) {
-                        lastClickedTargetRef.type = 'series';
-                        lastClickedTargetRef.name = s.name;
-                        console.log('selected target (grid click):', lastClickedTargetRef);
-                        return;
-                    }
-                }
-            }
-        });
+        };
+        chart.getZr().on('click', chart.metricGridClick);
         // Reload replaces the file's sample axis; discard its previous callback.
         chart.off('datazoom');
         chart.on('datazoom', function (event_params) {
@@ -2163,6 +2219,10 @@
     function ProcessH5(res, panel = 1, reload = false){
         if (res.code === 0) {
             ++metricEpoch[panel];
+            metricRemovals[panel] = {revision:0, groups:new Map(), metrics:new Map()};
+            var previousTarget = panel === 2 ? lastClickedTarget2 : lastClickedTarget;
+            previousTarget.name = null; previousTarget.metric = null; previousTarget.type = null;
+            MetricGroupActions.close();
             lineSamples[panel].clear();
             lineMissingMetrics[panel] = new Set(res.missing || []);
             var reloadRange = lineSampleRange(panel, (panel === 2 ? TimeLine2 : TimeLine).length);
@@ -2461,12 +2521,12 @@
             if (metricHeat) metricHeat.datasetLoaded(heatMeta, panel);
             if ((!metricHeat || !metricHeat.isHeat(panel)) && Object.keys(targetMetricSelectList).length) {
                 var query = JSON.parse(JSON.stringify(targetMetricSelectList));
-                var loadEpoch = metricEpoch[panel];
+                var loadEpoch = metricEpoch[panel], loadRevision = metricRemovals[panel].revision;
                 $.ajax({url:'/api/show/query', type:'POST', contentType:'application/json',
                     data:JSON.stringify({query:query, secondary:panel === 2}),
                     success:function (result) {
                         if (loadEpoch !== metricEpoch[panel]) return;
-                        if (result.code === 0) renderLineFromHeat(result.data, panel);
+                        if (result.code === 0) renderLineFromHeat(filterMetricResponse(result.data, panel, loadRevision), panel);
                         else alert(result.msg);
                     }, error:function () { alert('Failed to reload selected metrics'); }
                 });
@@ -2513,6 +2573,7 @@
             selection:function (panel) { return panel === 2 ? MetricSelectList2 : MetricSelectList; },
             lineRange:lineSampleRange,
             renderLine:renderLineFromHeat,
+            recordRemoval:recordMetricRemoval,
             query:function (query, panel) {
                 return new Promise(function (resolve, reject) {
                     $.ajax({url:'/api/show/query', type:'POST', contentType:'application/json',

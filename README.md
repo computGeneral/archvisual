@@ -282,8 +282,14 @@ Hover a cell for the full metric name, sample label and raw value.
 - **Line / Heat** switches retain Plot groups, metrics and the selected sample range.
   Template export/import also preserves the groups and per-map color settings.
   Each split panel keeps its own data, mode, horizontal scale and color settings.
-  **Clear** removes all maps in the active panel. Click a heat cell, then press
-  Delete to remove that metric only from its own map; an empty map is removed.
+  **Clear** removes all groups in the active panel. In either mode, each group
+  has a **⋯** menu with **Remove metric…** and **Remove group**. The metric list
+  scrolls and supports Up/Down and Enter, including overlapping Line curves.
+  Click a Line curve or a Heat cell, then press **Delete** to remove that metric
+  only from its group; **Shift+Delete** removes the selected group. Selecting
+  only a group does not make Delete remove the whole group. An empty group is
+  removed automatically. Heat group actions remain available with the sidebar
+  hidden. Removal affects the current plot selection, not the source file.
 - Reloading a file refreshes values and retains metrics present in the new file;
   absent metrics are reported in the panel's status bar.
 

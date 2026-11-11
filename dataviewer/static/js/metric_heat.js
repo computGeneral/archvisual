@@ -149,6 +149,12 @@
             s.maps.forEach(function (entry) { entry.widget.card.classList.toggle('heat-map-selected', entry === m); });
             mapStatus(m, 'Selected: ' + s.selected.name);
         }
+        function selectGroup(panel, m) {
+            activatePanel(panel);
+            states[panel].selected = { key: m.key, name: null };
+            states[panel].maps.forEach(function (entry) { entry.widget.card.classList.toggle('heat-map-selected', entry === m); });
+            mapStatus(m, 'Selected group: ' + m.key);
+        }
         function releaseLegend(w) {
             if (w.legendBinding) w.legendBinding.dispose();
             w.legendBinding = null;
@@ -301,6 +307,17 @@
                 spacer: spacer, canvas: canvas, axes: axes, cells: null, dpr: null, legendBinding: null, resizer: resizer, chart: null, viewKey: null, layout: null, legendLayout: null, scrollLeft: 0,
                 color: controls.querySelector('[name="heatColor"]'),
                 min: controls.querySelector('[name="heatMin"]'), max: controls.querySelector('[name="heatMax"]') };
+            w.actions = window.MetricGroupActions.install(card, {
+                group: key,
+                metrics: function () { return m.group.Sig.slice(); },
+                select: function () { selectGroup(panel, m); },
+                removeMetric: function (name) { removeMetric(panel, key, name); },
+                removeGroup: function () { removeGroup(panel, key); }
+            });
+            card.addEventListener('click', function (event) {
+                // Cell clicks keep their metric selection; sidebar controls do not reset it.
+                if (event.target === card || event.target === viewport || event.target === spacer) selectGroup(panel, m);
+            });
             syncHeatControls(m);
             resizer.addEventListener('pointerdown', function (event) {
                 if (event.button !== 0 || parent.drag) return;
@@ -401,6 +418,7 @@
             if (panelWidget(panel).drag && panelWidget(panel).drag.owner === m) endSidebarDrag(panel);
             var w = m.widget;
             w.resize.disconnect(); panelWidget(panel).intersections.unobserve(w.card);
+            w.actions.destroy();
             releaseLegend(w);
             if (w.cells) w.cells.dispose();
             if (w.chart) w.chart.dispose();
@@ -410,7 +428,49 @@
         function removeMap(panel, m) {
             var s = states[panel];
             s.maps = s.maps.filter(function (entry) { return entry !== m; });
+            if (s.selected && s.selected.key === m.key) s.selected = null;
             disposeMap(panel, m);
+            finishWaiting(panel);
+        }
+        function finishWaiting(panel) {
+            var s = states[panel];
+            if (s.waiting && !s.maps.some(function (entry) { return entry.busy; })) {
+                s.waiting = false;
+                if (!panelWidget(panel).status.classList.contains('heat-error')) status(panel, '');
+            }
+        }
+        function groupData(m, data) {
+            var signals = Object.create(null);
+            m.group.Sig.forEach(function (name) { signals[name] = data.Sig[name]; });
+            // Only the group's mapping changes; shared sample arrays stay read-only.
+            return Object.assign({}, data, { Sig: signals });
+        }
+        function finishRemoval(panel) {
+            finishWaiting(panel);
+            if (!states[panel].waiting) status(panel, '');
+            scheduleRender(panel);
+        }
+        function removeGroup(panel, key) {
+            var s = states[panel], m = s.maps.find(function (entry) { return entry.key === key; });
+            if (!m) return false;
+            adapter.recordRemoval(panel, key);
+            removeMap(panel, m);
+            finishRemoval(panel);
+            return true;
+        }
+        function removeMetric(panel, key, name) {
+            var s = states[panel], m = s.maps.find(function (entry) { return entry.key === key; });
+            if (!m || !m.group.Sig.includes(name)) return false;
+            if (m.group.Sig.length === 1) return removeGroup(panel, key);
+            adapter.recordRemoval(panel, key, name);
+            m.group.Sig = m.group.Sig.filter(function (metric) { return metric !== name; });
+            invalidateSamples(m);
+            m.rows = m.rows.filter(function (row) { return row.name !== name; });
+            if (m.data) m.data = groupData(m, m.data);
+            if (s.selected && s.selected.key === key) s.selected = null;
+            m.widget.card.classList.remove('heat-map-selected');
+            finishRemoval(panel);
+            return true;
         }
         function scheduleRender(panel) {
             var w = widgets[panel];
@@ -678,12 +738,6 @@
             var s = states[panel], epoch = s.token, token = ++m.token;
             m.busy = true; m.error = ''; mapStatus(m, 'Loading metrics…'); scheduleRender(panel);
             function current() { return s.token === epoch && m.token === token && s.maps.includes(m); }
-            function finishWaiting() {
-                if (s.waiting && !s.maps.some(function (entry) { return entry.busy; })) {
-                    s.waiting = false;
-                    if (!panelWidget(panel).status.classList.contains('heat-error')) status(panel, '');
-                }
-            }
             var query = clone(m.group), missing = removeOnError ? [] : query.Sig.filter(function (name) {
                 return s.missing.includes(name);
             });
@@ -710,15 +764,15 @@
                 missing.forEach(function (name) { data[m.key].Sig[name] = s.times.map(function () { return null; }); });
                 var rows = rowsFromGroups({ [m.key]: m.group }, data, s.times.length, reusableRows);
                 invalidateSamples(m);
-                m.data = data[m.key]; m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
+                m.data = groupData(m, data[m.key]); m.rows = rows; m.busy = false; m.loaded = true; s.loaded = true;
                 m.dataEpoch = epoch;
-                summarize(panel, m); finishWaiting(); scheduleRender(panel); return true;
+                summarize(panel, m); finishWaiting(panel); scheduleRender(panel); return true;
             }).catch(function (error) {
                 if (current()) {
                     m.busy = false; m.error = error.message;
                     if (removeOnError) { removeMap(panel, m); status(panel, m.key + ': ' + error.message, true); }
                     else mapStatus(m, error.message, true);
-                    finishWaiting();
+                    finishWaiting(panel);
                     scheduleRender(panel);
                 }
                 return false;
@@ -745,6 +799,7 @@
         function setMode(value, panel) {
             var s = states[panel];
             if (value === s.mode) return;
+            window.MetricGroupActions.close();
             if (value === 'heat') {
                 ++s.token;
                 var groups = clone(adapter.selection(panel));
@@ -774,7 +829,11 @@
 
         return {
             isHeat: function (panel) { return states[panel].mode === 'heat'; },
-            activate: function (panel) { active = panel; syncControls(); if (states[panel].mode === 'heat') rangeInputs(panel); },
+            activate: function (panel) {
+                if (panel !== active) window.MetricGroupActions.close();
+                active = panel; syncControls();
+                if (states[panel].mode === 'heat') rangeInputs(panel);
+            },
             selection: selection,
             reloadSelection: function (panel) {
                 // Include pending Plots so a successful reload can finish them
@@ -795,7 +854,7 @@
                 s.maps.forEach(function (m) {
                     ++m.token;
                     m.rows = rowsFromGroups({[m.key]:m.group}, data, s.times.length);
-                    m.data = data[m.key]; m.loaded = true; m.busy = false; m.error = '';
+                    m.data = groupData(m, data[m.key]); m.loaded = true; m.busy = false; m.error = '';
                     m.dataEpoch = s.token;
                     invalidateSamples(m);
                 });
@@ -847,7 +906,7 @@
                         // Template import already returned the samples. Validate
                         // them under the new map name without querying them again.
                         m.rows = rowsFromGroups({ [name]: m.group }, { [name]: data[key] }, s.times.length);
-                        m.data = data[key]; m.loaded = true; s.loaded = true;
+                        m.data = groupData(m, data[key]); m.loaded = true; s.loaded = true;
                         m.dataEpoch = s.token;
                         summarize(panel, m); scheduleRender(panel); return true;
                     } catch (error) {
@@ -863,19 +922,20 @@
                 if (!states[3 - panel].maps.length) stopDprWatch();
                 status(panel, ''); scheduleRender(panel);
             },
-            removeSelected: function (panel) {
+            removeMetric: removeMetric,
+            removeGroup: removeGroup,
+            removeSelected: function (panel, wholeGroup) {
                 var s = states[panel], selected = s.selected;
-                if (!selected) { status(panel, 'Click a cell to select a metric before pressing Delete'); return; }
-                var m = s.maps.find(function (entry) { return entry.key === selected.key; });
-                if (!m) return;
-                m.group.Sig = m.group.Sig.filter(function (name) { return name !== selected.name; });
-                if (!m.group.Sig.length) removeMap(panel, m);
-                else {
-                    invalidateSamples(m);
-                    m.rows = m.rows.filter(function (row) { return row.name !== selected.name; });
-                    m.widget.card.classList.remove('heat-map-selected');
+                if (!selected) {
+                    status(panel, wholeGroup ? 'Select a group before pressing Shift+Delete' : 'Click a cell to select a metric before pressing Delete');
+                    return false;
                 }
-                s.selected = null; status(panel, ''); scheduleRender(panel);
+                if (wholeGroup) return removeGroup(panel, selected.key);
+                if (selected.name === null) {
+                    status(panel, 'Select a metric before pressing Delete; Shift+Delete removes the group');
+                    return false;
+                }
+                return removeMetric(panel, selected.key, selected.name);
             },
             zoomFromInputs: function (panel) {
                 var s = states[panel];

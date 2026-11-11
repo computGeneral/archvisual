@@ -1,0 +1,21 @@
+.metric-group-actions { position:absolute; top:2px; right:8px; z-index:5; font:12px sans-serif; }
+.heat-map > .metric-group-actions { top:22px; right:calc(var(--heat-sidebar-width) + 12px); }
+.metric-group-actions-toggle { width:22px; height:20px; padding:0; border:1px solid #aaa;
+    border-radius:3px; background:rgba(255,255,255,.9); color:#444; cursor:pointer; font:18px/16px sans-serif; }
+.metric-group-actions-toggle:hover, .metric-group-actions-toggle:focus-visible { background:#e6effa; }
+.metric-group-action-status { position:absolute; right:25px; top:0; width:max-content; max-width:240px;
+    padding:3px 5px; background:#fff8d9; color:#604c00; }
+.metric-group-menu { position:fixed; z-index:10000000; width:340px; max-width:calc(100vw - 8px);
+    max-height:calc(100vh - 8px); overflow:auto; box-sizing:border-box; padding:6px;
+    border:1px solid #aaa; border-radius:3px; background:#fff; color:#333;
+    box-shadow:0 3px 10px #0003; font:12px sans-serif; }
+.metric-group-menu strong { display:block; padding:4px; overflow-wrap:anywhere; }
+.metric-group-menu button { display:block; width:100%; box-sizing:border-box; padding:5px 6px;
+    text-align:left; border:0; background:#fff; color:#333; font:inherit; cursor:pointer; }
+.metric-group-menu button:hover, .metric-group-menu button:focus-visible { background:#e6effa; }
+.metric-group-menu button:disabled { color:#888; cursor:default; }
+.metric-group-metrics { height:224px; overflow:auto; border-top:1px solid #ddd; margin-top:4px; }
+.metric-group-metrics > div { position:relative; }
+.metric-group-menu .metric-group-metric-remove { position:absolute; height:28px;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.chart-container { position:relative; }
