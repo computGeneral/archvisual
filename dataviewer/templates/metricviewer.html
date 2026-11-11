@@ -1262,8 +1262,12 @@
     });
 
     function MetricSearchFunc(event) {
-        if (event.keyCode != "13") return;
+        // Confirming an IME candidate must not submit the search.
+        if (event.isComposing || event.keyCode === 229) return;
+        if (event.key !== "Enter" && event.keyCode !== 13) return;
+        event.preventDefault();
         var filterMetric = document.getElementById("filterMetric");
+        MetricSelectDivClick();
         metricSearch.search(filterMetric.value);
         if (filterMetric.value.length) {
             document.getElementById('filterMetricGroup').value = filterMetric.value;
