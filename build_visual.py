@@ -127,6 +127,9 @@ def build_executable():
         "--include-package=visualizer",  # Your Django project
         "--include-package=dataviewer",  # Your Django apps
         "--include-module=scripts.paths",
+        # Keep CPython's JSON accelerator: anti-bloat may otherwise exclude it
+        # and make large metric responses use the pure-Python encoder.
+        "--include-module=_json",
         # Add more apps as needed
 
         # Add these plugins for removing unused imports
