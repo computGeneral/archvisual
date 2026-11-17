@@ -264,9 +264,10 @@ Hover a cell for the full metric name, sample label and raw value.
   retain the choice on the current page; refreshing the page restores 16×16.
   At 16 px, every visible metric row has a label. At 8 px, labels are spaced to
   avoid overlap; all metric rows and samples remain, with full names in tooltips.
-  Use **Ctrl+wheel** to zoom sample columns between **1 px and the chosen size**,
-  centered on the sample under the pointer. Zoom-out stops when the selected
-  range fits the viewport, unless it still overflows at the 1 px minimum.
+  Use **Ctrl+wheel** to zoom sample columns, centered on the sample under the
+  pointer. The minimum is **1 CSS px or 1 device pixel, whichever is larger**;
+  the chosen cell size sets the maximum unless that physical minimum is larger.
+  Zoom-out also stops when the selected range fits the viewport.
   Maps in the same panel share horizontal zoom, panning and Start/End so their
   samples stay aligned. Scroll vertically through the list of maps.
   Use **Shift+wheel** to pan horizontally, or use the horizontal/vertical
@@ -312,8 +313,21 @@ sample arrays. ECharts still draws the axes, color legend and min/avg/max column
 This avoids allocating an ECharts data/rectangle object for every visible sample;
 it does not aggregate samples, change numeric precision or alter H5 loading.
 Hover, legend highlighting and selection use the same row/sample coordinates.
-The sample bitmap follows the device pixel ratio and is released on Clear/Delete
-or suspended when switching to Line. Dense plots retain the original ECharts
+Sampling cells share device-pixel-aligned fill, border and hit geometry; each
+edge moves at most half a device pixel. A map can reuse the clean overlapping
+part of its previous sampling viewport only when data, colors, geometry and DPR
+match and all shared edges translate by the same integer device-pixel offset.
+Other frames redraw completely. This cache covers only the visible samples,
+and is released when the map is offscreen or its panel is hidden; the displayed
+frame, data and selection are retained. Clear/Delete releases the renderer,
+and switching to Line suspends its sample bitmaps. Cache allocation/copy failure
+falls back to complete drawing. The internal `bitmapReuse: false` renderer option
+uses identical geometry with no clean cache; it is a test control, not a menu.
+DPR changes invalidate both panels. Resolution, resize and focus events provide
+immediate checks; a 250 ms DPR-only check covers delayed browser events while
+Heat maps exist. Removing all Heat maps or switching both panels to Line stops
+this watcher. Hidden maps rebuild at the current DPR before display.
+Dense plots retain the original ECharts
 hover-layer blending with a temporary transparent highlight Canvas. Sample hover
 allocates only a small patch; legend hover can use a full visible-grid highlight
 bitmap, which is released when the highlight ends.
@@ -331,6 +345,7 @@ python3 -B archvisual.py check
 python3 -B archvisual.py test dataviewer --noinput
 node dataviewer/test_metric_heat.cjs
 node --test scripts/test_heat_canvas.cjs
+node scripts/test_heat_bitmap_cache.cjs
 ```
 
 Heat viewport stability is covered by an additional browser regression. With
@@ -373,10 +388,53 @@ node scripts/test_heat_cell_size.cjs http://127.0.0.1:8000 /path/to/output/heat-
 ```
 
 The pixel test generates a small metric fixture with 10,000 samples and compares
-all sample pixels, including outer strokes, against the bundled ECharts heatmap
-at DPR 1, 1.25, 1.5 and 2 with both 16px and 8px cells. It includes missing values,
-manual/per-metric color scales, hover and legend highlighting. The lifecycle test
-covers live DPR changes, Line/Heat transitions and repeated Plot/Clear/Delete.
+sampling RGBA bytes between bitmap reuse and uncached drawing at DPR 1, 1.25,
+1.3, 1.5 and 2 with both 16px and 8px cells. It independently checks original
+values, ECharts colors and statistics; legacy sample pixels are recorded
+separately because device alignment changes edge antialiasing. It includes
+missing values, manual/per-metric color scales, hover, legend highlighting and
+actual copied frames during dense panning. The lifecycle test covers idle dual
+panel DPR changes, hidden-panel cache release, group replacement, Line/Heat
+transitions and repeated Plot/Clear/Delete. The Node cache test injects optional
+cache failures and checks release/recovery; it does not simulate GPU exhaustion.
+
+Each sample column keeps at least one device pixel: the CSS width floor is
+1 CSS px at DPR >= 1; below 1 it is `(ceil(100 / DPR) + 1) / 100` CSS px,
+combined with the viewport-fit floor. Rounding up and adding 0.01 CSS px
+headroom prevents reciprocal/grid roundoff from collapsing adjacent pixel
+boundaries. DPR 0.5 uses 2.01 CSS px per sample; DPR 0.75 uses 1.35 CSS px. At extremely low
+DPR this physical minimum takes precedence over the selected horizontal cell
+size; metric row heights stay at 8 or 16 CSS pixels. DPR changes recheck both
+panels before drawing. Returning to a higher DPR preserves the current width
+until the user zooms out.
+
+Scoped validation record (2026-11-17): the maintained pixel test completed
+all 10 cell-size/DPR configurations across three separate browser runs,
+using the fixed pixel-a-v1, pixel-b-v1 and pixel-c-v1 shards. All three runs
+returned zero, and all 430 strict pixel-comparison records had zero differences.
+This is a complete matrix aggregate, not a single uninterrupted browser run.
+The same test file still runs all 10 configurations by default; an optional
+third argument selects one of those three fixed shards.
+
+The current lifecycle validation passed all 9 checks. Earlier Mac/Chrome
+validation had reported an independent ECharts statistic-pixel mismatch on
+the frozen previous implementation as well as the candidate. That historical
+failure is retained; the current matrix result follows the reviewed test-design
+corrections and does not retroactively turn the earlier runs into passes.
+The standalone device-floor test below, including its below-1 DPR cases, was
+not rerun in this validation batch. These results do not establish full
+production acceptance or a pass of the parent repository's framework regression.
+The device-floor test uses an existing 80-metric, 10,000-sample `seams.h5`
+fixture and writes only its report:
+
+```bash
+node scripts/test_heat_device_floor.cjs http://127.0.0.1:8000 /path/to/new-output /path/to/seams.h5
+```
+
+It checks actual device boundaries, raw values, native pointer selection,
+strict sampling RGBA, viewport-fit limits and both panels during DPR changes.
+It does not replace the independent statistic-pixel regression above.
+
 The cell-size test checks linked maps, independent panels, metric labels, zoom
 limits, original array reuse and settings across real CSV/H5 reloads and mode changes.
 Use a new output directory for each test run. These tests do not establish

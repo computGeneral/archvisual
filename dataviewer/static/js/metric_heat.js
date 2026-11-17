@@ -124,22 +124,64 @@
     function install(adapter) {
         var states = { 1: newState(), 2: newState() }, widgets = {}, active = 1;
         var mode = document.getElementById('metricMode');
-        var dprMedia = null;
-        function dprChanged() {
-            stopDprWatch(); startDprWatch();
+        var dprMedia = null, dprTimer = null, watchedDpr = window.devicePixelRatio || 1;
+        function deviceColumnWidth() {
+            // Keep the existing CSS minimum, but never collapse two samples
+            // onto the same device-pixel boundary when browser DPR is below 1.
+            // Round upward to the wheel's 0.01 CSS-pixel precision, then keep
+            // one more step of headroom. An exact reciprocal (even 1.6 at DPR
+            // 0.625) can still lose a pixel after grid/band roundoff.
+            var dpr = window.devicePixelRatio || 1;
+            return dpr >= 1 ? minColumnWidth : (Math.ceil(100 / dpr) + 1) / 100;
+        }
+        function watchResolution() {
+            if (dprMedia) dprMedia.removeEventListener('change', checkDpr);
+            dprMedia = window.matchMedia ? window.matchMedia('(resolution: ' + watchedDpr + 'dppx)') : null;
+            if (dprMedia) dprMedia.addEventListener('change', checkDpr);
+        }
+        function releaseSampleCache(m) {
+            if (m.widget.cells) m.widget.cells.releaseCache();
+            // Returning to this map must rebuild a clean cache even if its
+            // data and visible range have not changed while it was offscreen.
+            m.widget.viewKey = null;
+        }
+        function checkDpr() {
+            var dpr = window.devicePixelRatio || 1;
+            if (document.hidden || dpr === watchedDpr) return;
+            watchedDpr = dpr; watchResolution();
             [1, 2].forEach(function (panel) {
-                states[panel].maps.forEach(function (m) { m.widget.viewKey = null; });
+                states[panel].maps.forEach(releaseSampleCache);
                 scheduleRender(panel);
             });
         }
+        function pageVisibilityChanged() {
+            [1, 2].forEach(function (panel) {
+                if (document.hidden) states[panel].maps.forEach(releaseSampleCache);
+                else { checkDpr(); scheduleRender(panel); }
+            });
+        }
         function startDprWatch() {
-            if (dprMedia || !window.matchMedia) return;
-            dprMedia = window.matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
-            dprMedia.addEventListener('change', dprChanged);
+            if (dprTimer !== null) return;
+            watchedDpr = window.devicePixelRatio || 1; watchResolution();
+            window.addEventListener('resize', checkDpr);
+            window.addEventListener('focus', checkDpr);
+            document.addEventListener('visibilitychange', pageVisibilityChanged);
+            // Some browsers delay resolution media events until the CSS
+            // viewport also changes. Avoid a per-frame loop; only read DPR.
+            dprTimer = window.setInterval(checkDpr, 250);
         }
         function stopDprWatch() {
-            if (dprMedia) dprMedia.removeEventListener('change', dprChanged);
+            if (dprMedia) dprMedia.removeEventListener('change', checkDpr);
             dprMedia = null;
+            if (dprTimer !== null) window.clearInterval(dprTimer);
+            dprTimer = null;
+            window.removeEventListener('resize', checkDpr);
+            window.removeEventListener('focus', checkDpr);
+            document.removeEventListener('visibilitychange', pageVisibilityChanged);
+        }
+        function syncDprWatch() {
+            if ([1, 2].some(function (p) { return states[p].mode === 'heat' && states[p].maps.length; })) startDprWatch();
+            else stopDprWatch();
         }
         function selectCell(panel, m, value) {
             if (!value || !m.rows[value[5]]) return;
@@ -258,9 +300,9 @@
                 visibleStart(scroll, Math.max(0, count * s.columnWidth - plotWidth),
                     count, Math.max(1, Math.floor(plotWidth / s.columnWidth)), s.columnWidth) :
                 Math.floor(scroll / s.columnWidth);
-            s.cellSize = size; s.columnWidth = size;
-            s.minColumnWidth = Math.min(size, s.minColumnWidth);
-            s.pendingScrollLeft = first * size;
+            s.cellSize = size; s.columnWidth = Math.max(size, deviceColumnWidth());
+            s.minColumnWidth = Math.max(deviceColumnWidth(), Math.min(size, s.minColumnWidth));
+            s.pendingScrollLeft = first * s.columnWidth;
             s.maps.forEach(function (m) {
                 var w = m.widget, capacity = w.layout ? Math.max(1, Math.floor(w.layout.plotHeight / oldSize)) : 1;
                 // Preserve the first visible metric when the new window fits;
@@ -354,7 +396,6 @@
             var spacer = document.createElement('div'); spacer.className = 'heat-spacer';
             var canvas = document.createElement('div'); canvas.className = 'heat-canvas';
             var axes = document.createElement('div'); axes.className = 'heat-axes'; canvas.appendChild(axes);
-            startDprWatch();
             spacer.appendChild(canvas); viewport.appendChild(spacer);
             card.appendChild(viewport); card.appendChild(sidebar); card.appendChild(resizer);
             parent.host.appendChild(card);
@@ -482,13 +523,13 @@
             if (w.cells) w.cells.dispose();
             if (w.chart) w.chart.dispose();
             w.card.remove();
-            if (![1, 2].some(function (p) { return states[p].maps.some(function (entry) { return entry !== m; }); })) stopDprWatch();
         }
         function removeMap(panel, m) {
             var s = states[panel];
             s.maps = s.maps.filter(function (entry) { return entry !== m; });
             if (s.selected && s.selected.key === m.key) s.selected = null;
             disposeMap(panel, m);
+            syncDprWatch();
             finishWaiting(panel);
         }
         function finishWaiting(panel) {
@@ -546,6 +587,7 @@
                     invalidateSamples(m);
                 });
             }
+            syncDprWatch();
             if (heat) { rangeInputs(panel); scheduleRender(panel); }
             else adapter.resizeLine(panel);
             if (panel === active) syncControls();
@@ -553,7 +595,10 @@
         function render(panel) {
             var s = states[panel], parent = panelWidget(panel);
             var rowHeight = s.cellSize;
-            if (s.mode !== 'heat' || !parent.host.clientWidth) return;
+            if (s.mode !== 'heat' || document.hidden || !parent.host.clientWidth || !parent.host.clientHeight) {
+                s.maps.forEach(releaseSampleCache);
+                return;
+            }
             // Measure once when a Heat map actually needs layout. Line loads and
             // unchanged sample axes on Reload do not measure every label again.
             if (s.maps.length && s.axisTop === null) s.axisTop = axisTop(s.times);
@@ -587,7 +632,11 @@
             var layouts = s.maps.map(function (m) { return mapLayout(m.widget, s.axisTop, rowHeight); });
             var sampleCount = Math.max(0, s.end - s.start + 1);
             var plotWidth = layouts.reduce(function (width, layout) { return Math.max(width, layout.plotWidth); }, 0);
-            s.minColumnWidth = sampleCount ? Math.min(s.cellSize, Math.max(minColumnWidth, plotWidth / sampleCount)) : minColumnWidth;
+            // The physical-pixel floor also applies after DPR, range and layout
+            // changes. At extreme browser zoom it takes precedence over the
+            // nominal horizontal cell size; metric row height stays unchanged.
+            s.minColumnWidth = Math.max(deviceColumnWidth(),
+                sampleCount ? Math.min(s.cellSize, plotWidth / sampleCount) : minColumnWidth);
             s.columnWidth = Math.max(s.columnWidth, s.minColumnWidth);
             if (samplesFit(sampleCount, s.columnWidth, plotWidth)) {
                 s.scrollLeft = 0; s.pendingScrollLeft = null;
@@ -649,7 +698,10 @@
             w.scrollLeft = w.viewport.scrollLeft;
             w.layout = layout;
             var rect = w.viewport.getBoundingClientRect();
-            if (rect.bottom <= hostRect.top || rect.top >= hostRect.bottom) return;
+            if (rect.bottom <= hostRect.top || rect.top >= hostRect.bottom) {
+                releaseSampleCache(m);
+                return;
+            }
             var firstCol = s.start + visibleStart(s.scrollLeft, layout.scrollRange,
                 sampleCount, colCount, s.columnWidth);
             var lastCol = Math.min(s.end + 1, firstCol + colCount);
@@ -859,7 +911,7 @@
             });
             old.forEach(function (m) { if (!maps.includes(m)) disposeMap(panel, m); });
             s.maps = maps; s.selected = null;
-            if (!maps.length && !states[3 - panel].maps.length) stopDprWatch();
+            syncDprWatch();
             return Promise.all(maps.map(function (m) { return queryMap(panel, m, false); }));
         }
         function setMode(value, panel) {
@@ -947,7 +999,7 @@
                     s.loaded = true; replaceGroups(groups, panel); show(panel);
                 } else {
                     s.maps.forEach(function (m) { disposeMap(panel, m); }); s.maps = [];
-                    if (!states[3 - panel].maps.length) stopDprWatch();
+                    syncDprWatch();
                 }
             },
             plot: function (names, panel) {
@@ -957,7 +1009,7 @@
                 var key;
                 do { key = 'Heatmap ' + s.nextPlot++; } while (s.maps.some(function (m) { return m.key === key; }));
                 var m = createMap(panel, key, { Max: 'dataMax', Stack: false, Sig: unique });
-                s.maps.push(m); status(panel, '');
+                s.maps.push(m); syncDprWatch(); status(panel, '');
                 return queryMap(panel, m, true);
             },
             append: function (data, panel) {
@@ -967,7 +1019,7 @@
                     if (!group.Sig.length) return false;
                     var name = key, suffix = 2;
                     while (s.maps.some(function (m) { return m.key === name; })) name = key + ' (' + suffix++ + ')';
-                    var m = createMap(panel, name, group); s.maps.push(m);
+                    var m = createMap(panel, name, group); s.maps.push(m); syncDprWatch();
                     try {
                         // Template import already returned the samples. Validate
                         // them under the new map name without querying them again.
@@ -985,7 +1037,7 @@
                 var s = states[panel]; ++s.token;
                 s.maps.forEach(function (m) { disposeMap(panel, m); });
                 s.maps = []; s.selected = null; s.notice = ''; s.loaded = true; s.nextPlot = 1; s.waiting = false;
-                if (!states[3 - panel].maps.length) stopDprWatch();
+                syncDprWatch();
                 status(panel, ''); scheduleRender(panel);
             },
             removeMetric: removeMetric,

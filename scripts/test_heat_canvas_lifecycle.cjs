@@ -48,6 +48,47 @@ const result = {checks: [], errors: [], dpr: []};
             assert.equal(info.instances, 1); assert.equal(info.canvasCount, 1); result.dpr.push(info);
         }
         result.checks.push('live DPR 1→1.25→1.5→2→1 rebuilds both renderers with one live sample instance');
+        // Change DPR with identical CSS viewport dimensions, without scrolling
+        // either panel. Resolution media events can be delayed on desktop Chrome.
+        await page.evaluate(() => setSplitMode('horizontal'));
+        await page.evaluate(file => {setActivePanel(2); requestServerFile(file, 2, false);}, path.resolve(__dirname, '../examples/metricview.h5'));
+        await page.waitForFunction(() => !fileLoadBusy && $.active === 0);
+        await page.locator('#metricMode').selectOption('heat');
+        assert(await page.evaluate(() => metricHeat.plot(MetricNames2.slice(0, 8), 2))); await frames();
+        async function bothDpr(dpr, panels = [1, 2]) {
+            await cdp.send('Emulation.setDeviceMetricsOverride', {width: 1400, height: 950, deviceScaleFactor: dpr, mobile: false});
+            await page.waitForFunction(({dpr, panels}) => panels.every(panel => {
+                const host = document.querySelector('#panel' + panel + ' .heat-canvas');
+                return heatTestFrame(host)?.dpr === dpr && heatTestChart(host).getZr().painter.dpr === dpr;
+            }), {dpr, panels}, {timeout: 3000});
+            await frames();
+        }
+        await bothDpr(2); await bothDpr(1.25);
+        result.checks.push('both idle split panels automatically rebuild at DPR 2 and 1.25 with unchanged CSS viewport');
+        await page.evaluate(() => {
+            window.hiddenHeat = heatTestRecord(document.querySelector('#panel2 .heat-canvas'));
+            window.hiddenFrame = heatTestFrame(hiddenHeat.host);
+            window.hiddenSelection = JSON.stringify(metricHeat.selection(2));
+            setSplitMode('single');
+        });
+        await page.waitForFunction(() => hiddenHeat.renderer.bitmapStats().cacheBytes === 0);
+        assert(await page.evaluate(() => heatTestFrame(hiddenHeat.host) === hiddenFrame &&
+            hiddenHeat.host.querySelector('.heat-samples').width > 0 && JSON.stringify(metricHeat.selection(2)) === hiddenSelection));
+        await bothDpr(1.5, [1]);
+        await page.evaluate(() => setSplitMode('vertical')); await bothDpr(1.5);
+        assert(await page.evaluate(() => hiddenHeat.disposed && heatTestRecord(document.querySelector('#panel2 .heat-canvas')).renderer.bitmapStats().cacheBytes > 0));
+        result.checks.push('hidden panel releases only its clean cache, retains samples/selection, and returns at the current DPR');
+        await page.evaluate(() => {metricHeat.clear(2); setSplitMode('single'); setActivePanel(1);}); await frames();
+
+        // Replacing the sole retained Heat group via Line used to stop its DPR
+        // listener when the old group was disposed before assigning the new list.
+        await page.locator('#metricMode').selectOption('line'); await frames();
+        await page.evaluate(() => {MetricSelectList = {'Replacement': {Max:'dataMax', Stack:false, Sig:MetricNames.slice(0, 8)}};});
+        await page.locator('#metricMode').selectOption('heat');
+        await page.waitForFunction(() => $.active === 0 && !!heatTestFrame(document.querySelector('#panel1 .heat-canvas')));
+        await bothDpr(2, [1]);
+        assert.equal(await page.locator('#panel1 .heat-map').getAttribute('data-group'), 'Replacement');
+        result.checks.push('sole-group replacement retains an active DPR watcher');
         await page.locator('#metricMode').selectOption('line'); await frames();
         assert(await page.evaluate(() => [...document.querySelectorAll('.heat-samples,.heat-sample-highlight')].every(c => !c.width && !c.height)));
         await page.locator('#metricMode').selectOption('heat'); await page.waitForFunction(() => $.active === 0); await frames();
@@ -59,7 +100,7 @@ const result = {checks: [], errors: [], dpr: []};
         }); await frames();
         assert(await page.evaluate(() => heatTestInstances.size === 0 && !heatTestFrame(oldHeatHost) &&
             !oldHeatCanvas.width && !oldHeatCanvas.height && !oldHeatCanvas.isConnected && !oldHeatHost.isConnected));
-        await page.evaluate(() => {oldHeatHost.dispatchEvent(new MouseEvent('mousemove', {clientX: 400, clientY: 60})); oldHeatHost.dispatchEvent(new MouseEvent('click'));});
+        await page.evaluate(() => {oldHeatHost.dispatchEvent(new PointerEvent('pointermove', {clientX: 400, clientY: 60})); oldHeatHost.dispatchEvent(new MouseEvent('click'));});
         await frames(); assert.equal(await page.locator('.heat-map').count(), 0);
         await page.evaluate(() => {delete window.oldHeatHost; delete window.oldHeatCanvas;});
         result.checks.push('Clear releases frames/bitmaps and detached sample nodes cannot select metrics');
