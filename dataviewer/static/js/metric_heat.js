@@ -155,7 +155,34 @@
             states[panel].maps.forEach(function (entry) { entry.widget.card.classList.toggle('heat-map-selected', entry === m); });
             mapStatus(m, 'Selected group: ' + m.key);
         }
+        function clearStatisticHover(w) {
+            ++w.statisticHoverToken;
+            if (w.restoredStatisticIndex !== null && w.restoredStatisticIndex !== undefined && w.chart) {
+                if (w.legendBinding) w.legendBinding.hide();
+                w.chart.dispatchAction({ type: 'downplay', seriesId: 'heat-statistics',
+                    dataIndex: w.restoredStatisticIndex });
+            }
+            w.restoredStatisticIndex = null;
+            w.statisticHover = false;
+        }
+        function queueStatisticHover(w, params) {
+            if (params.seriesId !== 'heat-statistics' || !Number.isInteger(params.dataIndex) || params.dataIndex < 0 ||
+                !Array.isArray(params.value) || !Number.isFinite(params.value[2])) return;
+            var chart = w.chart, token = ++w.statisticHoverToken;
+            // ZRender delivers mousemove before mouseover. Let a normal entry
+            // finish first; only restore the missing same-target entry.
+            Promise.resolve().then(function () {
+                if (w.chart !== chart || w.statisticHoverToken !== token ||
+                    w.statisticHover || !w.legendBinding) return;
+                chart.dispatchAction({ type: 'highlight', seriesId: 'heat-statistics',
+                    dataIndex: params.dataIndex });
+                w.restoredStatisticIndex = params.dataIndex;
+                w.statisticHover = true;
+                w.legendBinding.show(params.value[2]);
+            });
+        }
         function releaseLegend(w) {
+            clearStatisticHover(w);
             if (w.legendBinding) w.legendBinding.dispose();
             w.legendBinding = null;
         }
@@ -645,10 +672,11 @@
                 if (w.chart) w.chart.dispose();
                 w.chart = echarts.init(w.axes, null, { renderer: 'canvas', devicePixelRatio: dpr });
                 w.dpr = dpr; w.legendLayout = null;
-                w.statisticHover = false;
+                w.statisticHover = false; w.statisticHoverToken = 0; w.restoredStatisticIndex = null;
                 w.chart.on('click', function (params) { selectCell(panel, m, params.value); });
                 w.chart.on('mouseover', function (params) { w.statisticHover = params.seriesId === 'heat-statistics'; });
-                w.chart.on('mouseout', function () { w.statisticHover = false; });
+                w.chart.on('mousemove', function (params) { queueStatisticHover(w, params); });
+                w.chart.on('mouseout', function () { clearStatisticHover(w); });
                 w.cells = MetricHeatCanvas.create(w.canvas, {
                     echarts: echarts, palette: palette, colorValue: colorValue,
                     select: function (value) { selectCell(panel, m, value); },
